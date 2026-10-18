@@ -35,8 +35,11 @@ _LIGHT_VIEW = Vector((0.3, 0.4, 0.85)).normalized()  # view-space light directio
 _VERT_SRC = """
 void main()
 {
-  gl_Position = mvp * vec4(pos, 1.0);
-  gl_Position.z -= 0.0005 * gl_Position.w;  // depth bias: avoid z-fighting with the mesh
+  // Depth bias relative to distance: move the vertex towards the camera (object space).
+  // perspective: params.y = 1, cam.xyz = camera position; ortho: params.y = 0, cam.xyz = offset
+  // towards the camera scaled by the view distance. params.x = relative bias.
+  vec3 to_cam = cam.xyz - pos * params.y;
+  gl_Position = mvp * vec4(pos + to_cam * params.x, 1.0);
   float shade = 1.0;
   if (light.w > 0.5) {
     // light.xyz: view-space headlight direction brought into object space on the CPU
@@ -55,32 +58,29 @@ void main()
 # Module state (runtime only).
 _state = {
     'handle': None,       # draw handler handle
-    'dirty': True,
+    'dirty': True,        # channel values stale (color changed)
+    'dirty_geo': True,    # geometry stale (topology/positions/normals changed)
     'failed': False,      # draw callback raised: stay silent until re-enabled
-    'key': None,
+    'geo_key': None,      # topology key of the cached geometry
+    'geo': None,          # (pos, nor, lv, tri) numpy buffers
+    'ibo': None,
+    'val_key': None,      # (attr name, domain, channel, geometry generation) of cached values
+    'val': None,
+    'gen': 0,             # geometry generation counter
     'batch': None,
     'shader': None,
 }
+_BIAS = 5e-4  # depth bias, relative to the camera distance
 
 
 # ---------------------------------------------------------------- pure buffers
 
-def build_buffers(mesh, attr, channel: str):
-    """Per-corner buffers for the overlay (read-only on the mesh).
+def build_geometry(mesh):
+    """Cacheable per-corner geometry (read-only on the mesh).
 
-    Returns (pos (L,3) f32, nor (L,3) f32, val (L,) f32, indices (T,3) int32 of corner indices).
-    Raises ValueError for invalid input or if attribute/mesh sizes do not match.
+    Returns (pos (L,3) f32, nor (L,3) f32, lv (L,) loop->vertex indices, indices (T,3) int32).
     """
-    if channel not in CHANNEL_INDEX:
-        raise ValueError(f"Invalid channel '{channel}'")
-    error = validate_color_attribute(mesh, attr)
-    if error:
-        raise ValueError(error)
     n_verts, n_loops = len(mesh.vertices), len(mesh.loops)
-    expected = n_verts if attr.domain == 'POINT' else n_loops
-    if len(attr.data) != expected:
-        raise ValueError("Attribute size does not match mesh (stale data)")
-
     lv = loop_vertex_indices(mesh)
     co = np.empty(n_verts * 3, dtype=np.float32)
     if n_verts:
@@ -101,9 +101,6 @@ def build_buffers(mesh, attr, channel: str):
             mesh.vertices.foreach_get('normal', vn)
         nor = vn.reshape(-1, 3)[lv]
 
-    values = read_colors(mesh, attr)[:, CHANNEL_INDEX[channel]]
-    val = values[lv] if attr.domain == 'POINT' else values
-
     mesh.calc_loop_triangles()  # Blender's read-only cache
     n_tris = len(mesh.loop_triangles)
     tri = np.empty(n_tris * 3, dtype=np.int32)
@@ -111,14 +108,84 @@ def build_buffers(mesh, attr, channel: str):
         mesh.loop_triangles.foreach_get('loops', tri)
     return (np.ascontiguousarray(pos, dtype=np.float32),
             np.ascontiguousarray(nor, dtype=np.float32),
-            np.ascontiguousarray(val, dtype=np.float32),
+            np.asarray(lv),
             tri.reshape(-1, 3))
+
+
+def build_values(mesh, attr, channel: str, lv):
+    """Per-corner (L,) float32 values of one channel. Does not touch positions/normals/triangles.
+
+    Raises ValueError for invalid input or if attribute/mesh sizes do not match.
+    """
+    if channel not in CHANNEL_INDEX:
+        raise ValueError(f"Invalid channel '{channel}'")
+    error = validate_color_attribute(mesh, attr)
+    if error:
+        raise ValueError(error)
+    n_verts, n_loops = len(mesh.vertices), len(mesh.loops)
+    expected = n_verts if attr.domain == 'POINT' else n_loops
+    if len(attr.data) != expected:
+        raise ValueError("Attribute size does not match mesh (stale data)")
+    values = read_colors(mesh, attr)[:, CHANNEL_INDEX[channel]]
+    val = values[lv] if attr.domain == 'POINT' else values
+    return np.ascontiguousarray(val, dtype=np.float32)
+
+
+def build_buffers(mesh, attr, channel: str):
+    """Per-corner buffers for the overlay (read-only on the mesh).
+
+    Returns (pos (L,3) f32, nor (L,3) f32, val (L,) f32, indices (T,3) int32 of corner indices).
+    Raises ValueError for invalid input or if attribute/mesh sizes do not match.
+    """
+    if channel not in CHANNEL_INDEX:
+        raise ValueError(f"Invalid channel '{channel}'")
+    pos, nor, lv, tri = build_geometry(mesh)
+    val = build_values(mesh, attr, channel, lv)
+    return pos, nor, val, tri
+
+
+def geometry_key(obj_name: str, mesh):
+    """Topology key: geometry is rebuilt only when it changes (or on a geometry update)."""
+    return (obj_name, mesh.as_pointer(), len(mesh.vertices), len(mesh.loops), len(mesh.polygons))
+
+
+def refresh_cache(obj_name: str, mesh, attr, channel: str):
+    """Update the cached numpy buffers; returns (pos, nor, val, tri, geo_changed, val_changed).
+
+    Geometry is re-read only if the topology key changed or `dirty_geo` is set; values are
+    re-read when dirty / attribute / channel changed / geometry was rebuilt.
+    Raises ValueError for stale/invalid data.
+    """
+    gkey = geometry_key(obj_name, mesh)
+    geo_changed = _state['dirty_geo'] or gkey != _state['geo_key'] or _state['geo'] is None
+    if geo_changed:
+        _state['geo'] = None
+        _state['geo'] = build_geometry(mesh)
+        _state['geo_key'] = gkey
+        _state['gen'] += 1
+        _state['dirty_geo'] = False
+    pos, nor, lv, tri = _state['geo']
+    vkey = (attr.name, attr.domain, channel, _state['gen'])
+    val_changed = (geo_changed or _state['dirty'] or vkey != _state['val_key']
+                   or _state['val'] is None)
+    if val_changed:
+        _state['val'] = None
+        _state['val'] = build_values(mesh, attr, channel, lv)
+        _state['val_key'] = vkey
+        _state['dirty'] = False
+    return pos, nor, _state['val'], tri, geo_changed, val_changed
 
 
 # ---------------------------------------------------------------- dirty / redraw
 
 def tag_dirty() -> None:
-    """Mark the cached overlay batch stale (cheap, safe to call anywhere)."""
+    """Mark the cached channel values stale (color changed; cheap, safe to call anywhere)."""
+    _state['dirty'] = True
+
+
+def tag_dirty_geometry() -> None:
+    """Mark the cached geometry (and thus the values) stale."""
+    _state['dirty_geo'] = True
     _state['dirty'] = True
 
 
@@ -126,8 +193,13 @@ def is_dirty() -> bool:
     return bool(_state['dirty'])
 
 
+def is_dirty_geometry() -> bool:
+    return bool(_state['dirty_geo'])
+
+
 def clear_dirty() -> None:
     _state['dirty'] = False
+    _state['dirty_geo'] = False
 
 
 def tag_redraw() -> None:
@@ -142,9 +214,14 @@ def tag_redraw() -> None:
 
 
 def _clear_cache() -> None:
-    _state['key'] = None
+    _state['geo_key'] = None
+    _state['geo'] = None
+    _state['ibo'] = None
+    _state['val_key'] = None
+    _state['val'] = None
     _state['batch'] = None
     _state['dirty'] = True
+    _state['dirty_geo'] = True
 
 
 # ---------------------------------------------------------------- GPU
@@ -153,7 +230,9 @@ def _get_shader():
     if _state['shader'] is None:
         info = gpu.types.GPUShaderCreateInfo()
         info.push_constant('MAT4', 'mvp')
-        info.push_constant('VEC4', 'light')  # push constants are limited to 128 bytes
+        info.push_constant('VEC4', 'light')
+        info.push_constant('VEC4', 'cam')     # 64 + 3 * 16 = 112 bytes (limit is 128)
+        info.push_constant('VEC4', 'params')
         info.vertex_in(0, 'VEC3', 'pos')
         info.vertex_in(1, 'VEC3', 'nor')
         info.vertex_in(2, 'FLOAT', 'val')
@@ -167,7 +246,7 @@ def _get_shader():
     return _state['shader']
 
 
-def _make_batch(pos, nor, val, indices):
+def _make_batch(pos, nor, val, ibo):
     fmt = gpu.types.GPUVertFormat()
     fmt.attr_add(id='pos', comp_type='F32', len=3, fetch_mode='FLOAT')
     fmt.attr_add(id='nor', comp_type='F32', len=3, fetch_mode='FLOAT')
@@ -176,8 +255,20 @@ def _make_batch(pos, nor, val, indices):
     vbo.attr_fill('pos', pos)
     vbo.attr_fill('nor', nor)
     vbo.attr_fill('val', val.reshape(-1, 1))
-    ibo = gpu.types.GPUIndexBuf(type='TRIS', seq=indices)
     return gpu.types.GPUBatch(type='TRIS', buf=vbo, elem=ibo)
+
+
+def _camera_params(rv, obj):
+    """(cam vec4, params vec4) for the relative depth bias, in object space."""
+    inv_world = obj.matrix_world.inverted_safe()
+    view_inv = rv.view_matrix.inverted_safe()
+    if rv.is_perspective:
+        cam = inv_world @ view_inv.translation
+        return (cam.x, cam.y, cam.z, 0.0), (_BIAS, 1.0, 0.0, 0.0)
+    # ortho: direction towards the camera, scaled by the view distance
+    toward = inv_world.to_3x3() @ (view_inv.to_3x3() @ Vector((0.0, 0.0, 1.0)))
+    toward = toward.normalized() * max(rv.view_distance, 1e-3)
+    return (toward.x, toward.y, toward.z, 0.0), (_BIAS, 0.0, 0.0, 0.0)
 
 
 def _draw_impl() -> None:
@@ -195,20 +286,19 @@ def _draw_impl() -> None:
     if validate_color_attribute(mesh, attr) is not None:
         return
     shading = bool(wm.badvc_isolate_shading)
-    key = (obj.name, mesh.as_pointer(), attr.name, attr.domain, channel, shading,
-           len(mesh.vertices), len(mesh.loops))
-    if _state['dirty'] or key != _state['key'] or _state['batch'] is None:
-        try:
-            buffers = build_buffers(mesh, attr, channel)
-        except ValueError:
-            _state['batch'] = None
-            return  # stale/mismatching data (e.g. Edit Mode): skip the frame
-        _state['batch'] = _make_batch(*buffers) if len(buffers[3]) else None
-        _state['key'] = key
-        _state['dirty'] = False
-    batch = _state['batch']
-    if batch is None:
+    try:
+        pos, nor, val, tri, geo_changed, val_changed = refresh_cache(obj.name, mesh, attr, channel)
+    except ValueError:
+        _state['batch'] = None
+        return  # stale/mismatching data (e.g. Edit Mode): skip the frame
+    if geo_changed or _state['ibo'] is None:
+        _state['ibo'] = gpu.types.GPUIndexBuf(type='TRIS', seq=tri) if len(tri) else None
+    if _state['ibo'] is None:
+        _state['batch'] = None
         return
+    if geo_changed or val_changed or _state['batch'] is None:
+        _state['batch'] = _make_batch(pos, nor, val, _state['ibo'])  # new VBO from cached numpy
+    batch = _state['batch']
 
     shader = _get_shader()
     shader.bind()
@@ -216,13 +306,19 @@ def _draw_impl() -> None:
     m3 = (rv.view_matrix @ obj.matrix_world).to_3x3()
     light = (m3.inverted_safe() @ _LIGHT_VIEW).normalized()
     shader.uniform_float('light', (light.x, light.y, light.z, 1.0 if shading else 0.0))
+    cam, params = _camera_params(rv, obj)
+    shader.uniform_float('cam', cam)
+    shader.uniform_float('params', params)
+    prev_mask = gpu.state.depth_mask_get()
     gpu.state.blend_set('NONE')
     gpu.state.depth_test_set('LESS_EQUAL')
-    gpu.state.depth_mask_set(False)
+    gpu.state.depth_mask_set(True)  # the overlay occludes itself correctly
+    gpu.state.face_culling_set('FRONT' if obj.matrix_world.determinant() < 0 else 'BACK')
     try:
         batch.draw(shader)
     finally:
-        gpu.state.depth_mask_set(True)
+        gpu.state.face_culling_set('NONE')
+        gpu.state.depth_mask_set(prev_mask)
         gpu.state.depth_test_set('NONE')
 
 
@@ -249,19 +345,21 @@ def _on_depsgraph_update(scene, depsgraph=None) -> None:
         mesh_name, obj_name = obj.data.name, obj.name
         for update in depsgraph.updates:
             idb = update.id
-            if isinstance(idb, bpy.types.Mesh) and idb.name == mesh_name:
-                _state['dirty'] = True
-                return
-            if isinstance(idb, bpy.types.Object) and idb.name == obj_name:
+            if ((isinstance(idb, bpy.types.Mesh) and idb.name == mesh_name)
+                    or (isinstance(idb, bpy.types.Object) and idb.name == obj_name)):
+                if update.is_updated_geometry:
+                    _state['dirty_geo'] = True
                 _state['dirty'] = True
                 return
     except Exception:
         _state['dirty'] = True
+        _state['dirty_geo'] = True
 
 
 @persistent
 def _on_undo_redo(*args) -> None:
     _state['dirty'] = True
+    _state['dirty_geo'] = True
 
 
 @persistent
@@ -322,8 +420,7 @@ def _on_isolate_update(self, context) -> None:
 
 
 def _on_shading_update(self, context) -> None:
-    tag_dirty()
-    tag_redraw()
+    tag_redraw()  # shading is a uniform: no rebuild needed
 
 
 # ---------------------------------------------------------------- operator / registration
