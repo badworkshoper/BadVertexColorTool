@@ -20,25 +20,14 @@ class BADVC_PT_main(bpy.types.Panel):
             return
 
         mesh = obj.data
-        layout.template_list(
-            "MESH_UL_color_attributes", "", mesh, "color_attributes",
-            mesh.color_attributes, "active_color_index", rows=3,
-        )
-        layout.operator("geometry.color_attribute_add", text="Add Color Attribute", icon='ADD')
-
-        attr = mesh.color_attributes.active_color
-        if attr is None:
+        if mesh.color_attributes.active_color is None:
             layout.label(text="No active color attribute", icon='ERROR')
-        else:
-            box = layout.box()
-            box.label(text=f"Name: {attr.name}")
-            box.label(text=f"Domain: {attr.domain}")
-            box.label(text=f"Type: {attr.data_type}")
 
         settings = context.scene.badvc
-        col = layout.column()
-        col.prop(settings, "target_channels", expand=True)
-        col.prop(settings, "scope", expand=True)
+        row = layout.row(align=True)
+        row.prop(settings, "target_channels", expand=True)
+        row = layout.row(align=True)
+        row.prop(settings, "scope", expand=True)
 
 
 class _SubPanel:
@@ -61,17 +50,23 @@ class BADVC_PT_fill(_SubPanel, bpy.types.Panel):
         layout = self.layout
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
-        layout.prop(settings, "color", text="")
-        layout.operator("badvc.fill", text="Fill", icon='BRUSH_DATA')
-        row = layout.row(align=True)
-        for text, value in (("Fill 0", 0.0), ("Fill 1", 1.0)):
-            op = row.operator("badvc.fill_value", text=text)
-            op.value = value
-            op.channels = settings.target_channels
-            op.scope = settings.scope
-        layout.operator("badvc.invert", text="Invert Channels")
-        op = layout.operator("badvc.invert", text="Invert Color")
-        op.channels = {'R', 'G', 'B'}
+
+        split = layout.split(factor=0.4, align=True)
+        split.prop(settings, "color", text="")
+        op = split.operator("badvc.fill", text="Fill with Color")
+        op.color = settings.color
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+        split = layout.split(factor=0.4, align=True)
+        split.prop(settings, "value", text="Value", slider=True)
+        op = split.operator("badvc.fill_value", text="Fill with Value")
+        op.value = settings.value
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+        op = layout.operator("badvc.invert", text="Invert", icon='ARROW_LEFTRIGHT')
+        op.channels = settings.target_channels
         op.scope = settings.scope
 
 
@@ -148,4 +143,31 @@ class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
             op.scope = settings.scope
 
 
-classes = (BADVC_PT_main, BADVC_PT_fill, BADVC_PT_channel_values, BADVC_PT_transfer)
+class BADVC_PT_attribute(_SubPanel, bpy.types.Panel):
+    bl_label = "Color Attribute"
+    bl_idname = "BADVC_PT_attribute"
+
+    def draw(self, context):
+        layout = self.layout
+        mesh = context.active_object.data
+        layout.template_list(
+            "MESH_UL_color_attributes", "", mesh, "color_attributes",
+            mesh.color_attributes, "active_color_index", rows=3,
+        )
+        layout.operator("geometry.color_attribute_add", text="Add Color Attribute", icon='ADD')
+
+        attr = mesh.color_attributes.active_color
+        if attr is not None:
+            box = layout.box()
+            box.label(text=f"Name: {attr.name}")
+            box.label(text=f"Domain: {attr.domain}")
+            box.label(text=f"Type: {attr.data_type}")
+
+
+classes = (
+    BADVC_PT_main,
+    BADVC_PT_fill,
+    BADVC_PT_channel_values,
+    BADVC_PT_transfer,
+    BADVC_PT_attribute,
+)
