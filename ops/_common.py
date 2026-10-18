@@ -13,6 +13,7 @@ from ..core.attributes import (
 from ..core.channels import channels_to_indices
 from ..core.mode import ensure_object_mode
 from ..core.selection import get_selection_mask
+from ..preview import isolate
 
 _POLL_MODES = ('OBJECT', 'EDIT', 'VERTEX_PAINT')
 
@@ -40,11 +41,28 @@ def poll_color_mesh(context) -> bool:
     return validate_color_attribute(mesh, get_active_color_attribute(mesh)) is None
 
 
+def effective_channels(context) -> set[str]:
+    """Channels edits apply to: the isolated channel if isolation is active, else the panel setting."""
+    isolated = getattr(context.window_manager, 'badvc_isolate', 'NONE')
+    if isolated != 'NONE':
+        return {isolated}
+    return set(context.scene.badvc.target_channels)
+
+
+def _after_write(context) -> None:
+    """Refresh the isolate preview after a successful write (flag + redraw only)."""
+    isolate.tag_dirty()
+    isolate.tag_redraw()
+
+
 def init_from_settings(op, context, names) -> None:
     """Copy panel settings into operator props that were not set explicitly."""
     settings = context.scene.badvc
     for name in names:
         if op.properties.is_property_set(name):
+            continue
+        if name == 'channels':
+            setattr(op, name, effective_channels(context))
             continue
         value = getattr(settings, SETTINGS_MAP.get(name, name))
         if name == 'color':
@@ -77,6 +95,7 @@ def apply_color_op(context, obj, func: Callable[[np.ndarray], np.ndarray],
         out = colors.copy()
         out[np.ix_(idx, ch)] = new[:, ch]
         write_colors(mesh, attr, out)
+        _after_write(context)
         return int(idx.size)
 
 
@@ -104,6 +123,7 @@ def apply_full_op(context, obj, func_full: Callable, channels: set[str], scope: 
         out = colors.copy()
         out[np.ix_(idx, ch)] = new[np.ix_(idx, ch)]
         write_colors(mesh, attr, out)
+        _after_write(context)
         return int(idx.size)
 
 

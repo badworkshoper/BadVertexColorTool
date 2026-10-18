@@ -14,7 +14,7 @@ from ..core.channels import CHANNEL_INDEX, CHANNEL_ITEMS, channels_to_indices
 from ..core.mode import ensure_object_mode
 from ..core.selection import get_selection_mask
 from ..core.topology import convert_domain
-from ._common import init_from_settings, poll_color_mesh, run_color_op
+from ._common import _after_write, init_from_settings, poll_color_mesh, run_color_op
 from .fill import SCOPE_ITEMS
 
 _LOSSY_MSG = "Domains differ: swap is lossy (corner values averaged)"
@@ -146,6 +146,7 @@ def transfer_between_attributes(obj, source_name: str, operation: str, mode: str
         write_colors(mesh, mesh.color_attributes[target_name], new_t)
         if new_s is not None:
             write_colors(mesh, mesh.color_attributes[source_name], new_s)
+        _after_write(bpy.context)
         return int(t_idx.size), operation == 'SWAP' and t_dom != s_dom
 
 

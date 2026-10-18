@@ -2,7 +2,7 @@
 
 import bpy
 
-from ..ops._common import poll_color_mesh
+from ..ops._common import effective_channels, poll_color_mesh
 
 
 class BADVC_PT_main(bpy.types.Panel):
@@ -24,8 +24,22 @@ class BADVC_PT_main(bpy.types.Panel):
             layout.label(text="No active color attribute", icon='ERROR')
 
         settings = context.scene.badvc
+        wm = context.window_manager
+        iso = wm.badvc_isolate
         row = layout.row(align=True)
+        row.enabled = iso == 'NONE'
         row.prop(settings, "target_channels", expand=True)
+        if iso != 'NONE':
+            layout.label(text=f"Isolated: {iso} \u2014 edits affect only this channel", icon='HIDE_OFF')
+        row = layout.row(align=True)
+        row.label(text="Isolate:")
+        for ch in "RGBA":
+            op = row.operator("badvc.isolate_channel", text=ch, depress=(iso == ch))
+            op.channel = ch
+        if iso != 'NONE':
+            op = row.operator("badvc.isolate_channel", text="", icon='X')
+            op.channel = 'NONE'
+        layout.prop(wm, "badvc_isolate_shading", text="Shading")
         row = layout.row(align=True)
         row.prop(settings, "scope", expand=True)
 
@@ -57,15 +71,15 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         row = layout.row(align=True)
         op = row.operator("badvc.fill", text="Fill with Color")
         op.color = settings.color
-        op.channels = settings.target_channels
+        op.channels = effective_channels(context)
         op.scope = settings.scope
         op = row.operator("badvc.fill_value", text="Fill with Value")
         op.value = settings.value
-        op.channels = settings.target_channels
+        op.channels = effective_channels(context)
         op.scope = settings.scope
 
         op = layout.operator("badvc.invert", text="Invert", icon='ARROW_LEFTRIGHT')
-        op.channels = settings.target_channels
+        op.channels = effective_channels(context)
         op.scope = settings.scope
 
         layout.separator()
@@ -81,7 +95,7 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         op.strength = settings.blend_strength
         op.color = settings.color
         op.value = settings.value
-        op.channels = settings.target_channels
+        op.channels = effective_channels(context)
         op.scope = settings.scope
 
         layout.separator()
@@ -92,7 +106,7 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         op = layout.operator("badvc.blur", text="Blur")
         op.iterations = settings.blur_iterations
         op.strength = settings.blur_strength
-        op.channels = settings.target_channels
+        op.channels = effective_channels(context)
         op.scope = settings.scope
 
 
@@ -128,7 +142,7 @@ class BADVC_PT_adjust(_SubPanel, bpy.types.Panel):
                              ("badvc.posterize", "Posterize"),
                              ("badvc.clamp_values", "Clamp")):
             op = grid.operator(idname, text=text)
-            op.channels = settings.target_channels
+            op.channels = effective_channels(context)
             op.scope = settings.scope
         layout.label(text="Tweak values in Adjust Last Operation (F9)", icon='INFO')
 
@@ -168,7 +182,7 @@ class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
             row.label(text="", icon='FORWARD')
             row.prop(settings, "transfer_dst_channel", text="")
         else:
-            layout.label(text="Channels: " + (", ".join(sorted(settings.target_channels)) or "none"))
+            layout.label(text="Channels: " + (", ".join(sorted(effective_channels(context))) or "none"))
 
         active = mesh.color_attributes.active_color
         src = settings.transfer_source
@@ -184,7 +198,7 @@ class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
             op.mode = settings.transfer_mode
             op.src_channel = settings.transfer_src_channel
             op.dst_channel = settings.transfer_dst_channel
-            op.channels = settings.target_channels
+            op.channels = effective_channels(context)
             op.scope = settings.scope
 
 

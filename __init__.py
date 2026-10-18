@@ -30,9 +30,11 @@ def register() -> None:
     for cls in _all_classes():
         bpy.utils.register_class(cls)
     bpy.types.Scene.badvc = bpy.props.PointerProperty(type=props.BADVC_PG_Settings)
+    preview.register()
 
 
 def unregister() -> None:
+    preview.unregister()
     if hasattr(bpy.types.Scene, "badvc"):
         del bpy.types.Scene.badvc
     for cls in reversed(_all_classes()):
