@@ -110,6 +110,21 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         op.channels = effective_channels(context)
         op.scope = settings.scope
 
+        layout.separator()
+        layout.label(text="Brush")
+        row = layout.row(align=True)
+        row.prop(settings, "brush_mode", expand=True)
+        layout.prop(settings, "brush_radius", text="Radius")
+        layout.prop(settings, "brush_strength", text="Strength", slider=True)
+        layout.prop(settings, "brush_falloff", text="Falloff")
+        layout.prop(settings, "brush_spacing", text="Spacing")
+        layout.prop(settings, "brush_front_faces_only")
+        row = layout.row()
+        row.scale_y = 1.5
+        row.operator_context = 'INVOKE_DEFAULT'
+        row.operator("badvc.brush", text="Brush", icon='BRUSH_DATA')
+        layout.label(text="Esc/RMB/Enter: exit · [ ] radius · Shift: blur · Ctrl: invert")
+
 
 class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
     bl_label = "Gradient"

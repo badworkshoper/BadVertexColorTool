@@ -1,3 +1,5 @@
-"""Interactive brush package (filled by F10)."""
+"""Interactive brush package (F10)."""
 
-classes = ()
+from . import paint_modal
+
+classes = (*paint_modal.classes,)

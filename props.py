@@ -2,6 +2,7 @@
 
 import bpy
 from bpy.props import (
+    BoolProperty,
     EnumProperty,
     FloatProperty,
     FloatVectorProperty,
@@ -162,7 +163,18 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
             ('GEODESIC', "Geodesic", "Distance along mesh edges"),
         ],
         default='LINEAR')
-    # Brush settings (declaration only, used by F10).
+    # Interactive brush (F10). Color / value / blend_source are shared with Paint.
+    brush_mode: EnumProperty(
+        name="Mode",
+        description="Brush mode",
+        items=[
+            ('MIX', "Mix", "Interpolate towards the color/value"),
+            ('ADD', "Add", "Add color/value times weight"),
+            ('SUB', "Sub", "Subtract color/value times weight"),
+            ('BLUR', "Blur", "Interpolate towards the average of the neighbours"),
+        ],
+        default='MIX',
+    )
     brush_radius: IntProperty(
         name="Radius",
         description="Brush radius in pixels",
@@ -188,6 +200,20 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
             ('CONSTANT', "Constant", ""),
         ],
         default='SMOOTH',
+    )
+    brush_spacing: FloatProperty(
+        name="Spacing",
+        description="Distance between dabs along the stroke, in percent of the brush radius",
+        min=1.0,
+        soft_max=100.0,
+        max=500.0,
+        default=10.0,
+        subtype='PERCENTAGE',
+    )
+    brush_front_faces_only: BoolProperty(
+        name="Front Faces Only",
+        description="Ignore vertices facing away from the camera",
+        default=True,
     )
 
 
