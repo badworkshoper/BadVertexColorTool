@@ -93,4 +93,59 @@ class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
             op.scope = settings.scope
 
 
-classes = (BADVC_PT_main, BADVC_PT_fill, BADVC_PT_channel_values)
+class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
+    bl_label = "Channel Transfer"
+    bl_idname = "BADVC_PT_transfer"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.enabled = poll_color_mesh(context)
+        settings = context.scene.badvc
+        mesh = context.active_object.data
+
+        layout.label(text="Within Attribute")
+        row = layout.row(align=True)
+        row.prop(settings, "transfer_src_channel", text="")
+        row.label(text="", icon='FORWARD')
+        row.prop(settings, "transfer_dst_channel", text="")
+        row = layout.row(align=True)
+        op = row.operator("badvc.channel_copy", text="Copy")
+        op.src = settings.transfer_src_channel
+        op.dst = settings.transfer_dst_channel
+        op.scope = settings.scope
+        op = row.operator("badvc.channel_swap", text="Swap")
+        op.a = settings.transfer_src_channel
+        op.b = settings.transfer_dst_channel
+        op.scope = settings.scope
+
+        layout.separator()
+        layout.label(text="From Attribute")
+        layout.prop_search(settings, "transfer_source", mesh, "color_attributes", text="Source")
+        layout.prop(settings, "transfer_mode", expand=True)
+        if settings.transfer_mode == 'CHANNEL':
+            row = layout.row(align=True)
+            row.prop(settings, "transfer_src_channel", text="")
+            row.label(text="", icon='FORWARD')
+            row.prop(settings, "transfer_dst_channel", text="")
+        else:
+            layout.label(text="Channels: " + (", ".join(sorted(settings.target_channels)) or "none"))
+
+        active = mesh.color_attributes.active_color
+        src = settings.transfer_source
+        if not src or src not in mesh.color_attributes:
+            layout.label(text="Pick a source attribute", icon='INFO')
+        elif active is not None and src == active.name:
+            layout.label(text="Source is the active attribute", icon='ERROR')
+        row = layout.row(align=True)
+        for text, operation in (("Copy", 'COPY'), ("Swap", 'SWAP')):
+            op = row.operator("badvc.attribute_transfer", text=text)
+            op.source = src
+            op.operation = operation
+            op.mode = settings.transfer_mode
+            op.src_channel = settings.transfer_src_channel
+            op.dst_channel = settings.transfer_dst_channel
+            op.channels = settings.target_channels
+            op.scope = settings.scope
+
+
+classes = (BADVC_PT_main, BADVC_PT_fill, BADVC_PT_channel_values, BADVC_PT_transfer)

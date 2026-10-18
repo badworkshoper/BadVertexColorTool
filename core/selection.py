@@ -3,6 +3,8 @@
 import bpy
 import numpy as np
 
+from .topology import loop_vertex_indices as _loop_vertices
+
 
 def vertex_selection(mesh) -> np.ndarray:
     """Bool (V,) of selected vertices."""
@@ -17,13 +19,6 @@ def face_selection(mesh) -> np.ndarray:
     out = np.zeros(len(mesh.polygons), dtype=bool)
     if len(out):
         mesh.polygons.foreach_get('select', out)
-    return out
-
-
-def _loop_vertices(mesh) -> np.ndarray:
-    out = np.empty(len(mesh.loops), dtype=np.int32)
-    if len(out):
-        mesh.loops.foreach_get('vertex_index', out)
     return out
 
 

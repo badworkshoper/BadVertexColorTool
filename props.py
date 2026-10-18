@@ -6,6 +6,7 @@ from bpy.props import (
     FloatProperty,
     FloatVectorProperty,
     IntProperty,
+    StringProperty,
 )
 
 from .core.channels import CHANNEL_ITEMS
@@ -51,6 +52,31 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         min=0.0,
         max=1.0,
         default=(1.0, 1.0, 1.0, 1.0),
+    )
+    transfer_source: StringProperty(
+        name="Source",
+        description="Name of the source color attribute for Channel Transfer",
+    )
+    transfer_src_channel: EnumProperty(
+        name="From",
+        description="Source channel",
+        items=CHANNEL_ITEMS,
+        default='R',
+    )
+    transfer_dst_channel: EnumProperty(
+        name="To",
+        description="Destination channel",
+        items=CHANNEL_ITEMS,
+        default='G',
+    )
+    transfer_mode: EnumProperty(
+        name="Mode",
+        description="Transfer a single channel or the selected channels of the whole color",
+        items=[
+            ('CHANNEL', "Channel", "Transfer one channel to another"),
+            ('COLOR', "Color", "Transfer the target channels (same channel to same channel)"),
+        ],
+        default='CHANNEL',
     )
     # Brush settings (declaration only, used by F10).
     brush_radius: IntProperty(

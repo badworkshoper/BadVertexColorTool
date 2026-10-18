@@ -22,6 +22,12 @@ SETTINGS_MAP = {
     'scope': 'scope',
     'color': 'color',
     'value': 'value',
+    'src': 'transfer_src_channel',
+    'dst': 'transfer_dst_channel',
+    'src_channel': 'transfer_src_channel',
+    'dst_channel': 'transfer_dst_channel',
+    'source': 'transfer_source',
+    'mode': 'transfer_mode',
 }
 
 
