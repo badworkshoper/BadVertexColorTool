@@ -1,0 +1,37 @@
+# Claude / agent files
+.claude/skills/
+CLAUDE.md
+
+# Documentation
+docs/
+
+# Tests
+tests/
+
+# Test meshes / example assets
+Exapmle/
+Example/
+test_meshes/
+*.fbx
+*.obj
+*.blend
+*.blend1
+*.blend2
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Build output
+build/
+dist/
+*.zip
+
+# OS / IDE
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
