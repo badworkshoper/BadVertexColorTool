@@ -1,3 +1,5 @@
-"""Operators package (filled by F01+)."""
+"""Operators package."""
 
-classes = ()
+from . import channel_value, fill, invert
+
+classes = (*fill.classes, *invert.classes, *channel_value.classes)

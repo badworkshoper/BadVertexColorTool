@@ -31,7 +31,7 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
     color: FloatVectorProperty(
         name="Color",
         description="Color used for filling",
-        subtype='COLOR',
+        subtype='COLOR_GAMMA',
         size=4,
         min=0.0,
         max=1.0,
@@ -43,6 +43,14 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         min=0.0,
         max=1.0,
         default=1.0,
+    )
+    channel_values: FloatVectorProperty(
+        name="Channel Values",
+        description="Per-channel values for the Channel Values panel (no automatic mesh writes)",
+        size=4,
+        min=0.0,
+        max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
     )
     # Brush settings (declaration only, used by F10).
     brush_radius: IntProperty(
