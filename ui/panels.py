@@ -3,6 +3,7 @@
 import bpy
 
 from ..ops._common import effective_channels, poll_color_mesh
+from ..ops.gradient import get_group
 
 
 class BADVC_PT_main(bpy.types.Panel):
@@ -108,6 +109,70 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         op.strength = settings.blur_strength
         op.channels = effective_channels(context)
         op.scope = settings.scope
+
+
+class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
+    bl_label = "Gradient"
+    bl_idname = "BADVC_PT_gradient"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.enabled = poll_color_mesh(context)
+        settings = context.scene.badvc
+        obj = context.active_object
+
+        row = layout.row(align=True)
+        row.prop(settings, "gradient_source", expand=True)
+        row = layout.row(align=True)
+        if settings.gradient_source == 'VALUE':
+            row.prop(settings, "gradient_start_value", text="Start", slider=True)
+            row.prop(settings, "gradient_end_value", text="End", slider=True)
+        else:
+            row.prop(settings, "gradient_color_a", text="")
+            row.prop(settings, "gradient_color_b", text="")
+        row.operator("badvc.gradient_swap_ends", text="", icon='ARROW_LEFTRIGHT')
+        layout.prop(settings, "gradient_easing", text="Easing")
+
+        def common(op):
+            op.source = settings.gradient_source
+            op.start_value = settings.gradient_start_value
+            op.end_value = settings.gradient_end_value
+            op.color_a = settings.gradient_color_a
+            op.color_b = settings.gradient_color_b
+            op.easing = settings.gradient_easing
+            op.channels = effective_channels(context)
+            op.scope = settings.scope
+
+        box = layout.box()
+        box.label(text="Axis")
+        row = box.row(align=True)
+        row.prop(settings, "gradient_axis", expand=True)
+        row = box.row(align=True)
+        row.prop(settings, "gradient_space", expand=True)
+        row = box.row(align=True)
+        row.prop(settings, "gradient_shape", expand=True)
+        row = box.row(align=True)
+        for text, flip in (("Apply Axis Gradient", False), ("Flipped", True)):
+            op = row.operator("badvc.gradient_axis", text=text)
+            common(op)
+            op.axis = settings.gradient_axis
+            op.space = settings.gradient_space
+            op.shape = settings.gradient_shape
+            op.flip = flip
+
+        box = layout.box()
+        box.label(text="Between Vertices")
+        row = box.row(align=True)
+        for which, text in (('START', "Set Start"), ('END', "Set End"), ('CLEAR', "Clear")):
+            row.operator("badvc.gradient_set_group", text=text).which = which
+        row = box.row(align=True)
+        row.label(text=f"Start: {len(get_group(obj, 'start'))} verts")
+        row.label(text=f"End: {len(get_group(obj, 'end'))} verts")
+        box.prop(settings, "gradient_method", expand=True)
+        op = box.operator("badvc.gradient_between", text="Apply")
+        common(op)
+        op.method = settings.gradient_method
+        box.label(text="Or select exactly 2 vertices in Edit Mode", icon='INFO')
 
 
 class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
@@ -226,6 +291,7 @@ class BADVC_PT_attribute(_SubPanel, bpy.types.Panel):
 classes = (
     BADVC_PT_main,
     BADVC_PT_paint,
+    BADVC_PT_gradient,
     BADVC_PT_channel_values,
     BADVC_PT_adjust,
     BADVC_PT_transfer,

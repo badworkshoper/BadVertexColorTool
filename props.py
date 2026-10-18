@@ -10,6 +10,7 @@ from bpy.props import (
 )
 
 from .core.channels import CHANNEL_ITEMS
+from .core.gradient import EASING_ITEMS
 
 
 class BADVC_PG_Settings(bpy.types.PropertyGroup):
@@ -120,6 +121,47 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         default=0.5,
         subtype='FACTOR',
     )
+    gradient_source: EnumProperty(
+        name="Source",
+        description="What the gradient interpolates",
+        items=[
+            ('VALUE', "Value", "Two values, written to the selected channels"),
+            ('COLOR', "Color", "Two colors"),
+        ],
+        default='VALUE',
+    )
+    gradient_start_value: FloatProperty(
+        name="Start", description="Value at the start of the gradient",
+        min=0.0, max=1.0, default=0.0, subtype='FACTOR')
+    gradient_end_value: FloatProperty(
+        name="End", description="Value at the end of the gradient",
+        min=0.0, max=1.0, default=1.0, subtype='FACTOR')
+    gradient_color_a: FloatVectorProperty(
+        name="Color A", description="Color at the start of the gradient",
+        subtype='COLOR_GAMMA', size=4, min=0.0, max=1.0, default=(0.0, 0.0, 0.0, 1.0))
+    gradient_color_b: FloatVectorProperty(
+        name="Color B", description="Color at the end of the gradient",
+        subtype='COLOR_GAMMA', size=4, min=0.0, max=1.0, default=(1.0, 1.0, 1.0, 1.0))
+    gradient_easing: EnumProperty(
+        name="Easing", description="Gradient curve", items=EASING_ITEMS, default='LINEAR')
+    gradient_axis: EnumProperty(
+        name="Axis", description="Gradient axis",
+        items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")], default='Z')
+    gradient_space: EnumProperty(
+        name="Space", description="Coordinate space of the axis",
+        items=[('LOCAL', "Local", "Object space"), ('WORLD', "World", "World space")],
+        default='LOCAL')
+    gradient_shape: EnumProperty(
+        name="Shape", description="Gradient shape",
+        items=[('LINEAR', "Linear", "Along the axis"), ('RADIAL', "Radial", "Distance from the center")],
+        default='LINEAR')
+    gradient_method: EnumProperty(
+        name="Method", description="How t is measured between the vertices",
+        items=[
+            ('LINEAR', "Linear", "Projection on the segment between the points"),
+            ('GEODESIC', "Geodesic", "Distance along mesh edges"),
+        ],
+        default='LINEAR')
     # Brush settings (declaration only, used by F10).
     brush_radius: IntProperty(
         name="Radius",
