@@ -161,6 +161,16 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
             op.flip = flip
 
         box = layout.box()
+        box.label(text="Gesture")
+        row = box.row(align=True)
+        row.prop(settings, "gradient_shape", expand=True)
+        row = box.row(align=True)
+        row.operator_context = 'INVOKE_DEFAULT'
+        op = row.operator("badvc.gradient_gesture", text="Draw Gradient", icon='IPO_LINEAR')
+        common(op)
+        op.shape = settings.gradient_shape
+
+        box = layout.box()
         box.label(text="Between Vertices")
         row = box.row(align=True)
         for which, text in (('START', "Set Start"), ('END', "Set End"), ('CLEAR', "Clear")):

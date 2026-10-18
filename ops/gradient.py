@@ -6,9 +6,13 @@ Shared core for F08b (mouse gesture): `run_gradient` takes any `t_func(mesh, mas
 
 from types import SimpleNamespace
 
+import traceback
+
 import bmesh
 import bpy
+import gpu
 import numpy as np
+from gpu_extras.batch import batch_for_shader
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty
 
 from ..core import gradient as G
@@ -213,6 +217,7 @@ class BADVC_OT_gradient_set_group(bpy.types.Operator):
 def _two_selected_ordered(obj, idx: np.ndarray):
     """(start, end, used_history) for exactly two selected vertices in Edit Mode (bmesh read-only)."""
     bm = bmesh.from_edit_mesh(obj.data)
+    bm.verts.index_update()  # BMVert indices may be stale
     chosen = set(int(i) for i in idx)
     hist = [e.index for e in bm.select_history if isinstance(e, bmesh.types.BMVert) and e.index in chosen]
     if len(hist) >= 2:
@@ -271,6 +276,210 @@ class BADVC_OT_gradient_between(_GradientProps, bpy.types.Operator):
         return run_gradient(self, context, t_func, props)
 
 
+# --------------------------------------------------------------------------- mouse gesture (F08b)
+
+_SNAP_STEP = np.radians(15.0)
+_MIN_DRAG_PX = 3.0
+_HEADER_TEXT = "Drag to draw gradient (LMB) | Shift: snap 15° | Esc/RMB: cancel"
+
+
+def _matrix_to_list(matrix) -> list:
+    """4x4 mathutils.Matrix -> 16 floats, row by row (restore with np.reshape(4, 4))."""
+    return [float(v) for row in matrix for v in row]
+
+
+def project_to_region(points: np.ndarray, matrix_list, region_size) -> np.ndarray:
+    """World points (N, 3) -> region pixel coords (N, 2); NaN for points behind the camera (w <= 1e-6)."""
+    m = np.asarray(matrix_list, dtype=np.float64).reshape(4, 4)
+    p = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    clip = p @ m[:, :3].T + m[:, 3]
+    w = clip[:, 3]
+    ok = w > 1e-6
+    screen = np.full((len(p), 2), np.nan)
+    ndc = clip[ok, :2] / w[ok, None]
+    screen[ok] = (ndc * 0.5 + 0.5) * np.asarray(region_size, dtype=np.float64)
+    return screen
+
+
+def _snap_end(start, end):
+    d = np.asarray(end, dtype=np.float64) - np.asarray(start, dtype=np.float64)
+    length = float(np.hypot(*d))
+    ang = round(float(np.arctan2(d[1], d[0])) / _SNAP_STEP) * _SNAP_STEP
+    return (start[0] + length * np.cos(ang), start[1] + length * np.sin(ang))
+
+
+def _window_region(area):
+    return next((r for r in area.regions if r.type == 'WINDOW'), None) if area else None
+
+
+_draw_shader = [None]
+
+
+def _draw_gesture(state: dict) -> None:
+    """POST_PIXEL callback: gesture line, end markers, circle for RADIAL. Silent after a failure."""
+    if state['failed'] or state['start'] is None:
+        return
+    try:
+        if _draw_shader[0] is None:
+            _draw_shader[0] = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+        shader = _draw_shader[0]
+        a = np.asarray(state['start'], dtype=np.float32)
+        b = np.asarray(state['end'], dtype=np.float32)
+        strips = [(np.array([a, b]), (1.0, 1.0, 1.0, 0.9))]
+        box = np.array([[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]], dtype=np.float32)
+        yellow = (1.0, 0.8, 0.1, 1.0)
+        strips += [(c + box, yellow) for c in (a, b)]
+        if state['shape'] == 'RADIAL':
+            r = float(np.hypot(*(b - a)))
+            ang = np.linspace(0.0, 2.0 * np.pi, 65, dtype=np.float32)
+            strips.append((a + r * np.stack([np.cos(ang), np.sin(ang)], axis=1), yellow))
+        region = bpy.context.region
+        gpu.state.blend_set('ALPHA')
+        shader.bind()
+        shader.uniform_float('viewportSize', (region.width, region.height))
+        shader.uniform_float('lineWidth', 2.0)
+        for strip, color in strips:
+            shader.uniform_float('color', color)
+            batch_for_shader(shader, 'LINE_STRIP', {"pos": strip.astype(np.float32)}).draw(shader)
+    except Exception:
+        state['failed'] = True
+        print("[BadVC] Gradient gesture draw error:")
+        traceback.print_exc()
+    finally:
+        gpu.state.blend_set('NONE')
+
+
+class BADVC_OT_gradient_gesture(_GradientProps, bpy.types.Operator):
+    """Draw a gradient with the mouse in the 3D viewport (drag from start to end)"""
+    bl_idname = "badvc.gradient_gesture"
+    bl_label = "Gradient by Gesture"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    shape: EnumProperty(name="Shape", items=[
+        ('LINEAR', "Linear", "Along the gesture line"),
+        ('RADIAL', "Radial", "Distance from the gesture start")], default='LINEAR')
+    start: FloatVectorProperty(name="Start", size=2, default=(0.0, 0.0),
+                               description="Gesture start in viewport pixels")
+    end: FloatVectorProperty(name="End", size=2, default=(0.0, 0.0),
+                             description="Gesture end in viewport pixels")
+    view_matrix: FloatVectorProperty(name="View Matrix", size=16, default=(0.0,) * 16,
+                                     options={'HIDDEN', 'SKIP_SAVE'})
+    region_size: FloatVectorProperty(name="Region Size", size=2, default=(0.0, 0.0),
+                                     options={'HIDDEN', 'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        return poll_color_mesh(context)
+
+    def _cleanup(self):
+        """Remove draw handler, header text and cursor. Idempotent, called from every exit path."""
+        handle = getattr(self, '_handle', None)
+        if handle is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
+            except Exception:
+                pass
+            self._handle = None
+        if getattr(self, '_ui_set', False):
+            self._ui_set = False
+            try:
+                self._area.header_text_set(None)
+                self._area.tag_redraw()
+                self._window.cursor_modal_restore()
+            except Exception:
+                pass
+
+    def invoke(self, context, event):
+        _init_gradient(self, context, {'shape': 'gradient_shape'})
+        area = context.area
+        region = _window_region(area)
+        if (area is None or area.type != 'VIEW_3D' or region is None
+                or context.space_data is None or context.space_data.region_3d is None):
+            self.report({'WARNING'}, "Use from the 3D viewport")
+            return {'CANCELLED'}
+        self._area, self._window = area, context.window
+        self._state = {'start': None, 'end': None, 'shape': self.shape, 'failed': False}
+        self._dragging = False
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+            _draw_gesture, (self._state,), 'WINDOW', 'POST_PIXEL')
+        area.header_text_set(_HEADER_TEXT)
+        context.window.cursor_modal_set('CROSSHAIR')
+        self._ui_set = True
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        try:
+            return self._modal(context, event)
+        except Exception:
+            self._cleanup()
+            traceback.print_exc()
+            return {'CANCELLED'}
+
+    def _modal(self, context, event):
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self._cleanup()
+            return {'CANCELLED'}
+        region = _window_region(self._area)
+        if region is None:
+            self._cleanup()
+            return {'CANCELLED'}
+        mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
+        inside = 0 <= mouse[0] < region.width and 0 <= mouse[1] < region.height
+        st = self._state
+
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and inside and not self._dragging:
+            self._dragging = True
+            st['start'] = st['end'] = mouse
+            self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if self._dragging and event.type == 'MOUSEMOVE':
+            st['end'] = _snap_end(st['start'], mouse) if event.shift else mouse
+            self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if self._dragging and event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            start, end = st['start'], st['end']
+            self._cleanup()
+            if np.hypot(end[0] - start[0], end[1] - start[1]) < _MIN_DRAG_PX:
+                return {'CANCELLED'}
+            rv = self._area.spaces.active.region_3d
+            self.start, self.end = start, end
+            self.view_matrix = _matrix_to_list(rv.perspective_matrix)
+            self.region_size = (region.width, region.height)
+            return self.execute(context)
+        if not self._dragging and (event.type == 'MIDDLEMOUSE' or event.type.startswith('WHEEL')
+                                   or event.type.startswith('TRACKPAD')):
+            return {'PASS_THROUGH'}
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if not any(self.view_matrix):
+            self.report({'WARNING'}, "Use from the 3D viewport")
+            return {'CANCELLED'}
+        start = np.array(self.start, dtype=np.float64)
+        d = np.array(self.end, dtype=np.float64) - start
+        length2 = float(d @ d)
+        if length2 < 1e-12:
+            self.report({'WARNING'}, "Gradient gesture is too short")
+            return {'CANCELLED'}
+        radial = self.shape == 'RADIAL'
+        matrix_list, size = list(self.view_matrix), tuple(self.region_size)
+        mw = np.array(context.active_object.matrix_world, dtype=np.float64)
+
+        def t_func(mesh, mask, domain):
+            world = vertex_positions(mesh) @ mw[:3, :3].T + mw[:3, 3]
+            screen = project_to_region(world, matrix_list, size)  # NaN behind the camera
+            with np.errstate(invalid='ignore'):
+                if radial:
+                    t = np.linalg.norm(screen - start, axis=1) / np.sqrt(length2)
+                else:
+                    t = (screen - start) @ d / length2
+                t = np.clip(t, 0.0, 1.0)
+            return vertex_to_domain(t, mesh, domain)
+
+        return run_gradient(self, context, t_func, self)
+
+
 # --------------------------------------------------------------------------- swap
 
 class BADVC_OT_gradient_swap_ends(bpy.types.Operator):
@@ -287,5 +496,5 @@ class BADVC_OT_gradient_swap_ends(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (BADVC_OT_gradient_axis, BADVC_OT_gradient_between,
+classes = (BADVC_OT_gradient_axis, BADVC_OT_gradient_between, BADVC_OT_gradient_gesture,
            BADVC_OT_gradient_set_group, BADVC_OT_gradient_swap_ends)
