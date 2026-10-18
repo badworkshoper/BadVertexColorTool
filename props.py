@@ -78,9 +78,9 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         ],
         default='CHANNEL',
     )
-    filter_mode: EnumProperty(
+    blend_mode: EnumProperty(
         name="Mode",
-        description="Filter blend mode",
+        description="Blend mode, shared by the Blend filter and the Brush",
         items=[
             ('MIX', "Mix", "Interpolate towards the color/value"),
             ('ADD', "Add", "Add color/value times strength"),
@@ -88,18 +88,18 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         ],
         default='MIX',
     )
-    filter_source: EnumProperty(
+    blend_source: EnumProperty(
         name="Source",
-        description="What the filter blends with",
+        description="What the blend uses, shared by the Blend filter and the Brush",
         items=[
             ('COLOR', "Color", "Use the color picker"),
             ('VALUE', "Value", "Use a single value in all channels"),
         ],
         default='COLOR',
     )
-    filter_strength: FloatProperty(
+    blend_strength: FloatProperty(
         name="Strength",
-        description="Filter strength",
+        description="Blend strength, shared by the Blend filter and the Brush",
         min=0.0,
         max=1.0,
         default=0.5,

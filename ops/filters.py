@@ -56,8 +56,8 @@ class BADVC_OT_filter_blend(bpy.types.Operator):
 
     def invoke(self, context, event):
         init_from_settings(self, context, ('color', 'value', 'channels', 'scope'))
-        _init_extra(self, context, {'mode': 'filter_mode', 'source': 'filter_source',
-                                    'strength': 'filter_strength'})
+        _init_extra(self, context, {'mode': 'blend_mode', 'source': 'blend_source',
+                                    'strength': 'blend_strength'})
         return self.execute(context)
 
     def execute(self, context):

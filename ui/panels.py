@@ -42,30 +42,56 @@ class _SubPanel:
         return obj is not None and obj.type == 'MESH'
 
 
-class BADVC_PT_fill(_SubPanel, bpy.types.Panel):
-    bl_label = "Fill / Invert"
-    bl_idname = "BADVC_PT_fill"
+class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
+    bl_label = "Paint"
+    bl_idname = "BADVC_PT_paint"
 
     def draw(self, context):
         layout = self.layout
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
 
-        split = layout.split(factor=0.4, align=True)
-        split.prop(settings, "color", text="")
-        op = split.operator("badvc.fill", text="Fill with Color")
+        layout.prop(settings, "color", text="")
+        layout.prop(settings, "value", text="Value", slider=True)
+
+        row = layout.row(align=True)
+        op = row.operator("badvc.fill", text="Fill with Color")
         op.color = settings.color
         op.channels = settings.target_channels
         op.scope = settings.scope
-
-        split = layout.split(factor=0.4, align=True)
-        split.prop(settings, "value", text="Value", slider=True)
-        op = split.operator("badvc.fill_value", text="Fill with Value")
+        op = row.operator("badvc.fill_value", text="Fill with Value")
         op.value = settings.value
         op.channels = settings.target_channels
         op.scope = settings.scope
 
         op = layout.operator("badvc.invert", text="Invert", icon='ARROW_LEFTRIGHT')
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+        layout.separator()
+        layout.label(text="Blend")
+        row = layout.row(align=True)
+        row.prop(settings, "blend_mode", expand=True)
+        row = layout.row(align=True)
+        row.prop(settings, "blend_source", expand=True)
+        layout.prop(settings, "blend_strength", text="Strength", slider=True)
+        op = layout.operator("badvc.filter_blend", text="Apply")
+        op.mode = settings.blend_mode
+        op.source = settings.blend_source
+        op.strength = settings.blend_strength
+        op.color = settings.color
+        op.value = settings.value
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+        layout.separator()
+        layout.label(text="Blur")
+        row = layout.row(align=True)
+        row.prop(settings, "blur_iterations", text="Iterations")
+        row.prop(settings, "blur_strength", text="Strength", slider=True)
+        op = layout.operator("badvc.blur", text="Blur")
+        op.iterations = settings.blur_iterations
+        op.strength = settings.blur_strength
         op.channels = settings.target_channels
         op.scope = settings.scope
 
@@ -86,44 +112,6 @@ class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
             op.channel = ch
             op.value = settings.channel_values[i]
             op.scope = settings.scope
-
-
-class BADVC_PT_filters(_SubPanel, bpy.types.Panel):
-    bl_label = "Filters"
-    bl_idname = "BADVC_PT_filters"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.enabled = poll_color_mesh(context)
-        settings = context.scene.badvc
-
-        row = layout.row(align=True)
-        row.prop(settings, "filter_mode", expand=True)
-        row = layout.row(align=True)
-        row.prop(settings, "filter_source", expand=True)
-        if settings.filter_source == 'COLOR':
-            layout.prop(settings, "color", text="")
-        else:
-            layout.prop(settings, "value", text="Value", slider=True)
-        layout.prop(settings, "filter_strength", text="Strength", slider=True)
-        op = layout.operator("badvc.filter_blend", text="Apply")
-        op.mode = settings.filter_mode
-        op.source = settings.filter_source
-        op.color = settings.color
-        op.value = settings.value
-        op.strength = settings.filter_strength
-        op.channels = settings.target_channels
-        op.scope = settings.scope
-
-        layout.separator()
-        row = layout.row(align=True)
-        row.prop(settings, "blur_iterations", text="Iterations")
-        row.prop(settings, "blur_strength", text="Strength", slider=True)
-        op = layout.operator("badvc.blur", text="Blur")
-        op.iterations = settings.blur_iterations
-        op.strength = settings.blur_strength
-        op.channels = settings.target_channels
-        op.scope = settings.scope
 
 
 class BADVC_PT_adjust(_SubPanel, bpy.types.Panel):
@@ -223,9 +211,8 @@ class BADVC_PT_attribute(_SubPanel, bpy.types.Panel):
 
 classes = (
     BADVC_PT_main,
-    BADVC_PT_fill,
+    BADVC_PT_paint,
     BADVC_PT_channel_values,
-    BADVC_PT_filters,
     BADVC_PT_adjust,
     BADVC_PT_transfer,
     BADVC_PT_attribute,
