@@ -39,3 +39,28 @@ def convert_domain(arr: np.ndarray, mesh, src_domain: str, dst_domain: str) -> n
     if src_domain == 'POINT' and dst_domain == 'CORNER':
         return point_to_corner(arr, mesh)
     raise ValueError(f"Unsupported domain conversion {src_domain} -> {dst_domain}")
+
+
+def edge_vertex_pairs(mesh) -> np.ndarray:
+    """(E, 2) int32 vertex indices of every edge."""
+    out = np.empty(len(mesh.edges) * 2, dtype=np.int32)
+    if len(out):
+        mesh.edges.foreach_get('vertices', out)
+    return out.reshape(-1, 2)
+
+
+def vertex_neighbor_mean(values: np.ndarray, edges: np.ndarray, n_verts: int) -> np.ndarray:
+    """(V, C) -> (V, C): mean of edge-connected neighbours; vertices without neighbours keep their value."""
+    values = np.asarray(values, dtype=np.float32)
+    out = values.copy()
+    if len(edges) == 0:
+        return out
+    a, b = edges[:, 0], edges[:, 1]
+    deg = (np.bincount(a, minlength=n_verts) + np.bincount(b, minlength=n_verts)).astype(np.float64)
+    has = deg > 0
+    safe = np.maximum(deg, 1.0)
+    for c in range(values.shape[1]):  # loop over channels only (<= 4), not elements
+        v = values[:, c].astype(np.float64)
+        sums = np.bincount(a, weights=v[b], minlength=n_verts) + np.bincount(b, weights=v[a], minlength=n_verts)
+        out[has, c] = (sums / safe)[has]
+    return out

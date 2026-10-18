@@ -80,6 +80,46 @@ def apply_color_op(context, obj, func: Callable[[np.ndarray], np.ndarray],
         return int(idx.size)
 
 
+def apply_full_op(context, obj, func_full: Callable, channels: set[str], scope: str) -> int:
+    """Like apply_color_op, but func_full sees the whole attribute.
+
+    func_full(colors (N, 4), mask (N,), mesh, domain) -> (N, 4). Only mask x channels
+    rows of the result are written. Returns the number of masked rows.
+    """
+    with ensure_object_mode(obj) as orig_mode:
+        mesh = obj.data
+        attr = get_active_color_attribute(mesh)
+        error = validate_color_attribute(mesh, attr)
+        if error:
+            raise ValueError(error)
+        ch = channels_to_indices(channels)
+        if not ch:
+            return 0
+        colors = read_colors(mesh, attr)
+        mask = get_selection_mask(obj, attr.domain, scope, mode=orig_mode)
+        idx = np.flatnonzero(mask)
+        if idx.size == 0:
+            return 0
+        new = np.asarray(func_full(colors.copy(), mask, mesh, attr.domain), dtype=np.float32)
+        out = colors.copy()
+        out[np.ix_(idx, ch)] = new[np.ix_(idx, ch)]
+        write_colors(mesh, attr, out)
+        return int(idx.size)
+
+
+def run_full_op(op, context, func_full, channels: set[str], scope: str) -> set:
+    """Run apply_full_op and translate the result into an operator return value."""
+    try:
+        count = apply_full_op(context, context.active_object, func_full, channels, scope)
+    except ValueError as e:
+        op.report({'ERROR'}, str(e))
+        return {'CANCELLED'}
+    if count == 0:
+        op.report({'WARNING'}, "Nothing selected" if channels else "No channels selected")
+        return {'CANCELLED'}
+    return {'FINISHED'}
+
+
 def run_color_op(op, context, func, channels: set[str], scope: str) -> set:
     """Run apply_color_op and translate the result into an operator return value."""
     try:

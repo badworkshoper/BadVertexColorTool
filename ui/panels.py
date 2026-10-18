@@ -88,6 +88,63 @@ class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
             op.scope = settings.scope
 
 
+class BADVC_PT_filters(_SubPanel, bpy.types.Panel):
+    bl_label = "Filters"
+    bl_idname = "BADVC_PT_filters"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.enabled = poll_color_mesh(context)
+        settings = context.scene.badvc
+
+        row = layout.row(align=True)
+        row.prop(settings, "filter_mode", expand=True)
+        row = layout.row(align=True)
+        row.prop(settings, "filter_source", expand=True)
+        if settings.filter_source == 'COLOR':
+            layout.prop(settings, "color", text="")
+        else:
+            layout.prop(settings, "value", text="Value", slider=True)
+        layout.prop(settings, "filter_strength", text="Strength", slider=True)
+        op = layout.operator("badvc.filter_blend", text="Apply")
+        op.mode = settings.filter_mode
+        op.source = settings.filter_source
+        op.color = settings.color
+        op.value = settings.value
+        op.strength = settings.filter_strength
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+        layout.separator()
+        row = layout.row(align=True)
+        row.prop(settings, "blur_iterations", text="Iterations")
+        row.prop(settings, "blur_strength", text="Strength", slider=True)
+        op = layout.operator("badvc.blur", text="Blur")
+        op.iterations = settings.blur_iterations
+        op.strength = settings.blur_strength
+        op.channels = settings.target_channels
+        op.scope = settings.scope
+
+
+class BADVC_PT_adjust(_SubPanel, bpy.types.Panel):
+    bl_label = "Adjust"
+    bl_idname = "BADVC_PT_adjust"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.enabled = poll_color_mesh(context)
+        settings = context.scene.badvc
+        grid = layout.grid_flow(row_major=True, columns=2, align=True)
+        for idname, text in (("badvc.levels", "Levels"),
+                             ("badvc.brightness_contrast", "Brightness / Contrast"),
+                             ("badvc.posterize", "Posterize"),
+                             ("badvc.clamp_values", "Clamp")):
+            op = grid.operator(idname, text=text)
+            op.channels = settings.target_channels
+            op.scope = settings.scope
+        layout.label(text="Tweak values in Adjust Last Operation (F9)", icon='INFO')
+
+
 class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
     bl_label = "Channel Transfer"
     bl_idname = "BADVC_PT_transfer"
@@ -168,6 +225,8 @@ classes = (
     BADVC_PT_main,
     BADVC_PT_fill,
     BADVC_PT_channel_values,
+    BADVC_PT_filters,
+    BADVC_PT_adjust,
     BADVC_PT_transfer,
     BADVC_PT_attribute,
 )

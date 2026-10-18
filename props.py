@@ -78,6 +78,48 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         ],
         default='CHANNEL',
     )
+    filter_mode: EnumProperty(
+        name="Mode",
+        description="Filter blend mode",
+        items=[
+            ('MIX', "Mix", "Interpolate towards the color/value"),
+            ('ADD', "Add", "Add color/value times strength"),
+            ('SUB', "Sub", "Subtract color/value times strength"),
+        ],
+        default='MIX',
+    )
+    filter_source: EnumProperty(
+        name="Source",
+        description="What the filter blends with",
+        items=[
+            ('COLOR', "Color", "Use the color picker"),
+            ('VALUE', "Value", "Use a single value in all channels"),
+        ],
+        default='COLOR',
+    )
+    filter_strength: FloatProperty(
+        name="Strength",
+        description="Filter strength",
+        min=0.0,
+        max=1.0,
+        default=0.5,
+        subtype='FACTOR',
+    )
+    blur_iterations: IntProperty(
+        name="Iterations",
+        description="Number of blur iterations",
+        min=1,
+        max=100,
+        default=3,
+    )
+    blur_strength: FloatProperty(
+        name="Blur Strength",
+        description="Blend factor towards the neighbour average per iteration",
+        min=0.0,
+        max=1.0,
+        default=0.5,
+        subtype='FACTOR',
+    )
     # Brush settings (declaration only, used by F10).
     brush_radius: IntProperty(
         name="Radius",

@@ -11,7 +11,7 @@ from .fill import SCOPE_ITEMS
 class BADVC_OT_invert(bpy.types.Operator):
     """Invert (1 - x) the selected channels"""
     bl_idname = "badvc.invert"
-    bl_label = "Invert Channels"
+    bl_label = "Invert"
     bl_options = {'REGISTER', 'UNDO'}
 
     channels: EnumProperty(name="Channels", items=CHANNEL_ITEMS, options={'ENUM_FLAG'},
