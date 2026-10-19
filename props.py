@@ -7,9 +7,11 @@ from bpy.props import (
     FloatProperty,
     FloatVectorProperty,
     IntProperty,
+    PointerProperty,
     StringProperty,
 )
 
+from .core.bake import SWIZZLE_ITEMS
 from .core.channels import CHANNEL_ITEMS
 from .core.gradient import EASING_ITEMS
 
@@ -215,6 +217,81 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         description="Ignore vertices facing away from the camera",
         default=True,
     )
+    # Bake to channel (F09)
+    bake_type: EnumProperty(
+        name="Bake", description="What to bake into the channels",
+        items=[('NORMAL', "Normal", "Normal vector components"),
+               ('AO', "AO", "Ambient occlusion"),
+               ('RANDOM', "Random", "Random value per part / face / vertex"),
+               ('POSITION', "Position", "Height or distance")],
+        default='NORMAL')
+    bake_normal_space: EnumProperty(
+        name="Space", description="Space of the baked normals",
+        items=[('OBJECT', "Object", "Object space"), ('WORLD', "World", "World space")],
+        default='OBJECT')
+    bake_normal_source: EnumProperty(
+        name="Source", description="Where the normals come from",
+        items=[('MESH', "Mesh", "Own (split / custom) normals of the mesh"),
+               ('PROXY', "Proxy", "Normals of the nearest surface point of another object"),
+               ('SPHERICAL', "Spherical", "Direction from a center point")],
+        default='MESH')
+    bake_proxy: PointerProperty(
+        name="Proxy", description="Mesh object whose surface normals are transferred",
+        type=bpy.types.Object, poll=lambda self, obj: obj.type == 'MESH')
+    bake_center: EnumProperty(
+        name="Center", description="Center of the spherical normals",
+        items=[('ORIGIN', "Origin", "Object origin"),
+               ('BBOX', "Bounds", "Center of the mesh bounding box"),
+               ('CURSOR', "Cursor", "3D cursor"),
+               ('SELECTION', "Selection", "Center of the affected vertices")],
+        default='ORIGIN')
+    bake_swizzle_r: EnumProperty(name="R", description="Normal component written to R",
+                                 items=SWIZZLE_ITEMS, default='POS_X')
+    bake_swizzle_g: EnumProperty(name="G", description="Normal component written to G",
+                                 items=SWIZZLE_ITEMS, default='POS_Y')
+    bake_swizzle_b: EnumProperty(name="B", description="Normal component written to B",
+                                 items=SWIZZLE_ITEMS, default='POS_Z')
+    bake_swizzle_a: EnumProperty(name="A", description="Normal component written to A",
+                                 items=SWIZZLE_ITEMS, default='NONE')
+    bake_ao_samples: IntProperty(name="Samples", description="Rays per vertex",
+                                 min=4, max=512, default=32)
+    bake_ao_distance: FloatProperty(name="Distance", description="Maximum ray length (world units)",
+                                    min=0.001, default=1.0, subtype='DISTANCE')
+    bake_ao_bias: FloatProperty(name="Bias", description="Ray origin offset along the normal (world units)",
+                                min=0.0, default=0.001, precision=4)
+    bake_ao_include_selected: BoolProperty(
+        name="Include Selected Objects", description="Other selected meshes also occlude", default=False)
+    bake_random_per: EnumProperty(
+        name="Per", description="Granularity of the random value",
+        items=[('LOOSE_PART', "Loose Part", "One value per connected piece"),
+               ('FACE', "Face", "One value per face"),
+               ('VERTEX', "Vertex", "One value per vertex")],
+        default='LOOSE_PART')
+    bake_random_seed: IntProperty(name="Seed", description="Random seed", default=0)
+    bake_random_min: FloatProperty(name="Min", min=0.0, max=1.0, default=0.0, subtype='FACTOR')
+    bake_random_max: FloatProperty(name="Max", min=0.0, max=1.0, default=1.0, subtype='FACTOR')
+    bake_random_per_channel: BoolProperty(
+        name="Per Channel", description="Independent random value for every channel", default=False)
+    bake_pos_mode: EnumProperty(
+        name="Mode", description="What is measured",
+        items=[('AXIS', "Axis", "Coordinate along an axis"),
+               ('DISTANCE', "Distance", "Distance from a center")],
+        default='AXIS')
+    bake_pos_axis: EnumProperty(name="Axis", items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")],
+                                default='Z')
+    bake_pos_center: EnumProperty(
+        name="Center", description="Center of the distance",
+        items=[('ORIGIN', "Origin", "Origin of the space"),
+               ('BBOX', "Bounds", "Center of the mesh bounding box"),
+               ('CURSOR', "Cursor", "3D cursor"),
+               ('PART', "Part", "Bounding box center of the vertex's own loose part")],
+        default='BBOX')
+    bake_pos_space: EnumProperty(
+        name="Space", description="Coordinate space",
+        items=[('LOCAL', "Local", "Object space"), ('WORLD', "World", "World space")], default='LOCAL')
+    bake_pos_per_part: BoolProperty(
+        name="Per Part", description="Normalise separately inside every loose part", default=False)
+    bake_pos_invert: BoolProperty(name="Invert", description="Write 1 - value", default=False)
 
 
 classes = (BADVC_PG_Settings,)

@@ -1,4 +1,4 @@
-"""Mesh topology helpers: vertex <-> corner mapping (more later: adjacency, loose parts, geodesic)."""
+"""Mesh topology helpers: vertex <-> corner mapping, edges, loose parts."""
 
 import numpy as np
 
@@ -64,3 +64,38 @@ def vertex_neighbor_mean(values: np.ndarray, edges: np.ndarray, n_verts: int) ->
         sums = np.bincount(a, weights=v[b], minlength=n_verts) + np.bincount(b, weights=v[a], minlength=n_verts)
         out[has, c] = (sums / safe)[has]
     return out
+
+
+def connected_components(edges: np.ndarray, n_verts: int) -> np.ndarray:
+    """Component label (V,) int32 of every vertex given edges (E, 2); labels are 0..K-1 ordered by first vertex.
+
+    Pure numpy, no Python loops over elements: hooking of component roots to smaller
+    labels (np.minimum.at) + pointer jumping until nothing changes (O(log V) rounds).
+    Vertices without edges are their own components.
+    """
+    labels = np.arange(n_verts, dtype=np.int64)
+    edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
+    if n_verts == 0:
+        return labels.astype(np.int32)
+    a, b = edges[:, 0], edges[:, 1]
+    while len(edges):
+        la, lb = labels[a], labels[b]
+        diff = la != lb
+        if not diff.any():
+            break
+        lo = np.minimum(la, lb)[diff]
+        hi = np.maximum(la, lb)[diff]
+        np.minimum.at(labels, hi, lo)  # hi is a root (labels fully compressed): hook to the smaller root
+        while True:  # pointer jumping
+            nxt = labels[labels]
+            if np.array_equal(nxt, labels):
+                break
+            labels = nxt
+    # roots are the smallest vertex index of each component -> compact to 0..K-1 in that order
+    _, inverse = np.unique(labels, return_inverse=True)
+    return inverse.astype(np.int32)
+
+
+def loose_parts(mesh) -> np.ndarray:
+    """(V,) int32 loose part (connected component by edges) label of every vertex."""
+    return connected_components(edge_vertex_pairs(mesh), len(mesh.vertices))

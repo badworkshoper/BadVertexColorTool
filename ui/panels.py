@@ -200,6 +200,102 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
         box.label(text="Or select exactly 2 vertices in Edit Mode", icon='INFO')
 
 
+class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
+    bl_label = "Bake"
+    bl_idname = "BADVC_PT_bake"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.enabled = poll_color_mesh(context)
+        settings = context.scene.badvc
+        channels = effective_channels(context)
+
+        row = layout.row(align=True)
+        row.prop(settings, "bake_type", expand=True)
+        kind = settings.bake_type
+
+        if kind == 'NORMAL':
+            row = layout.row(align=True)
+            row.prop(settings, "bake_normal_space", expand=True)
+            row = layout.row(align=True)
+            row.prop(settings, "bake_normal_source", expand=True)
+            if settings.bake_normal_source == 'PROXY':
+                layout.prop(settings, "bake_proxy", text="Proxy")
+                proxy = settings.bake_proxy
+                if proxy is not None and proxy == context.active_object:
+                    layout.label(text="Proxy must be a different object", icon='ERROR')
+            elif settings.bake_normal_source == 'SPHERICAL':
+                layout.prop(settings, "bake_center", text="Center")
+            box = layout.box()
+            box.label(text="Swizzle")
+            for ch in "rgba":
+                row = box.row(align=True)
+                row.label(text=ch.upper())
+                row.prop(settings, f"bake_swizzle_{ch}", text="")
+            box.label(text="Only selected channels are written", icon='INFO')
+        elif kind == 'AO':
+            layout.prop(settings, "bake_ao_samples")
+            layout.prop(settings, "bake_ao_distance")
+            layout.prop(settings, "bake_ao_bias")
+            layout.prop(settings, "bake_ao_include_selected")
+        elif kind == 'RANDOM':
+            row = layout.row(align=True)
+            row.prop(settings, "bake_random_per", expand=True)
+            layout.prop(settings, "bake_random_seed")
+            row = layout.row(align=True)
+            row.prop(settings, "bake_random_min", slider=True)
+            row.prop(settings, "bake_random_max", slider=True)
+            layout.prop(settings, "bake_random_per_channel")
+        else:
+            row = layout.row(align=True)
+            row.prop(settings, "bake_pos_mode", expand=True)
+            if settings.bake_pos_mode == 'AXIS':
+                row = layout.row(align=True)
+                row.prop(settings, "bake_pos_axis", expand=True)
+            else:
+                layout.prop(settings, "bake_pos_center", text="Center")
+            row = layout.row(align=True)
+            row.prop(settings, "bake_pos_space", expand=True)
+            layout.prop(settings, "bake_pos_per_part")
+            layout.prop(settings, "bake_pos_invert")
+
+        row = layout.row()
+        row.scale_y = 1.5
+        if kind == 'NORMAL':
+            op = row.operator("badvc.bake_normal", text="Bake", icon='RENDER_STILL')
+            op.space = settings.bake_normal_space
+            op.source = settings.bake_normal_source
+            op.proxy = settings.bake_proxy.name if settings.bake_proxy is not None else ""
+            op.center = settings.bake_center
+            op.swizzle_r = settings.bake_swizzle_r
+            op.swizzle_g = settings.bake_swizzle_g
+            op.swizzle_b = settings.bake_swizzle_b
+            op.swizzle_a = settings.bake_swizzle_a
+        elif kind == 'AO':
+            op = row.operator("badvc.bake_ao", text="Bake", icon='RENDER_STILL')
+            op.samples = settings.bake_ao_samples
+            op.distance = settings.bake_ao_distance
+            op.bias = settings.bake_ao_bias
+            op.include_selected = settings.bake_ao_include_selected
+        elif kind == 'RANDOM':
+            op = row.operator("badvc.bake_random", text="Bake", icon='RENDER_STILL')
+            op.per = settings.bake_random_per
+            op.seed = settings.bake_random_seed
+            op.min_value = settings.bake_random_min
+            op.max_value = settings.bake_random_max
+            op.per_channel = settings.bake_random_per_channel
+        else:
+            op = row.operator("badvc.bake_position", text="Bake", icon='RENDER_STILL')
+            op.mode = settings.bake_pos_mode
+            op.axis = settings.bake_pos_axis
+            op.center = settings.bake_pos_center
+            op.space = settings.bake_pos_space
+            op.per_part = settings.bake_pos_per_part
+            op.invert = settings.bake_pos_invert
+        op.channels = channels
+        op.scope = settings.scope
+
+
 class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
     bl_label = "Channel Values"
     bl_idname = "BADVC_PT_channel_values"
@@ -317,6 +413,7 @@ classes = (
     BADVC_PT_main,
     BADVC_PT_paint,
     BADVC_PT_gradient,
+    BADVC_PT_bake,
     BADVC_PT_channel_values,
     BADVC_PT_adjust,
     BADVC_PT_transfer,
