@@ -4,11 +4,31 @@ id = "bad_vertex_color_tool"
 version = "0.1.0"
 name = "BadVertexColorTool"
 tagline = "Fast and safe tools for Vertex Colors"
-maintainer = "badwo <badworkshoper@gmail.com>"
+maintainer = "badworkshoper <badworkshoper@gmail.com>"
 type = "add-on"
+tags = ["Paint", "Mesh"]
 
 blender_version_min = "4.2.0"
 
 license = [
   "SPDX:GPL-3.0-or-later",
+]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git*",
+  "/.claude/",
+  "/CLAUDE.md",
+  "/docs/",
+  "/tests/",
+  "/tools/",
+  "/dist/",
+  "/build/",
+  "/Exapmle/",
+  "*.pyc",
+  "*.blend*",
+  "*.fbx",
+  "*.obj",
+  "*.zip",
 ]

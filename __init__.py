@@ -2,7 +2,7 @@
 
 bl_info = {
     "name": "BadVertexColorTool",
-    "author": "badwo",
+    "author": "badworkshoper",
     "version": (0, 1, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > BadVC",
