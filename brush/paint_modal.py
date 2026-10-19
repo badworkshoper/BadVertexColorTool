@@ -54,6 +54,13 @@ def _step_radius(radius: int, factor: float) -> int:
     return new
 
 
+def is_exit_event(etype: str, value: str, ctrl: bool) -> bool:
+    """Events that end the brush session: Esc, RMB, Enter, Ctrl+Tab (all on PRESS)."""
+    if value != 'PRESS':
+        return False
+    return etype in {'ESC', 'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER'} or (etype == 'TAB' and bool(ctrl))
+
+
 class BADVC_OT_brush(bpy.types.Operator):
     """Paint vertex colors with an interactive brush (Mix / Add / Sub / Blur)"""
     bl_idname = "badvc.brush"
@@ -199,7 +206,7 @@ class BADVC_OT_brush(bpy.types.Operator):
             return self._exit(context, {'FINISHED', 'PASS_THROUGH'})
         if self._resize is not None:
             return self._modal_resize(context, event)
-        if value == 'PRESS' and etype in {'ESC', 'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER'}:
+        if is_exit_event(etype, value, event.ctrl):
             return self._exit(context)
 
         region = _window_region(self._area)
@@ -258,7 +265,7 @@ class BADVC_OT_brush(bpy.types.Operator):
     # ------------------------------------------------------------------ pointer / header / resize
 
     def _mode_for(self, context, event=None) -> str:
-        mode = context.scene.badvc.brush_mode
+        mode = context.scene.badvc.blend_mode
         if event is not None:
             mode = bcore.effective_mode(mode, event.ctrl, event.shift)
         return mode
@@ -268,7 +275,7 @@ class BADVC_OT_brush(bpy.types.Operator):
         st = self._state
         st['pos'] = (mx, my)
         st['radius'] = float(settings.brush_radius)
-        st['strength'] = float(settings.brush_strength)
+        st['strength'] = float(settings.blend_strength)
         st['mode'] = self._mode_for(context, event)
         if not self._ui_cursor:
             self._window.cursor_modal_set('CROSSHAIR')
@@ -277,8 +284,8 @@ class BADVC_OT_brush(bpy.types.Operator):
 
     def _sync_header(self, context, extra: str = ""):
         s = context.scene.badvc
-        text = (f"Brush {s.brush_mode.title()}  |  Radius {s.brush_radius}px  |  Strength {s.brush_strength:.2f}  |  "
-                f"{extra or 'LMB paint  [ ] radius  F / Shift+F resize radius / strength  Shift blur  Ctrl invert  Esc/RMB/Enter exit'}")
+        text = (f"Brush {s.blend_mode.title()}  |  Radius {s.brush_radius}px  |  Strength {s.blend_strength:.2f}  |  "
+                f"{extra or 'LMB paint  [ ] radius  F / Shift+F resize radius / strength  Shift blur  Ctrl invert  Esc/RMB/Enter/Ctrl+Tab exit'}")
         if text != self._header:
             self._header = text
             self._area.header_text_set(text)
@@ -286,7 +293,7 @@ class BADVC_OT_brush(bpy.types.Operator):
     def _begin_resize(self, context, kind: str, mouse):
         s = context.scene.badvc
         self._resize = {'kind': kind, 'center': mouse,
-                        'start': s.brush_radius if kind == 'radius' else s.brush_strength}
+                        'start': s.brush_radius if kind == 'radius' else s.blend_strength}
         st = self._state
         st['pos'] = mouse
         self._sync_header(context, f"Resize {kind}: move mouse, LMB/F/Enter confirm, Esc cancel")
@@ -314,7 +321,7 @@ class BADVC_OT_brush(bpy.types.Operator):
             if rs['kind'] == 'radius':
                 s.brush_radius = max(1, int(round(st['radius'])))
             else:
-                s.brush_strength = st['strength']
+                s.blend_strength = st['strength']
         if confirm or cancel:
             self._resize = None
             self._update_pointer(context, region, mx, my)
@@ -366,7 +373,7 @@ class BADVC_OT_brush(bpy.types.Operator):
         radius_px = float(settings.brush_radius)
         params = BrushParams(
             mode=self._mode_for(context, event), target=self._target, channels_idx=self._channels,
-            strength=float(settings.brush_strength), falloff=settings.brush_falloff,
+            strength=float(settings.blend_strength), falloff=settings.brush_falloff,
             front_only=bool(settings.brush_front_faces_only))
         persp = rv.is_perspective
         changed = 0

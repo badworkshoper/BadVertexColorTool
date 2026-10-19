@@ -3,6 +3,7 @@
 import bpy
 
 from ..ops._common import effective_channels, poll_color_mesh
+from ..core.bake import swizzle_channels
 from ..ops.gradient import get_group
 
 
@@ -66,14 +67,14 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
 
-        layout.prop(settings, "color", text="")
-        layout.prop(settings, "value", text="Value", slider=True)
-
         row = layout.row(align=True)
+        row.prop(settings, "color", text="")
         op = row.operator("badvc.fill", text="Fill with Color")
         op.color = settings.color
         op.channels = effective_channels(context)
         op.scope = settings.scope
+        row = layout.row(align=True)
+        row.prop(settings, "value", text="Value", slider=True)
         op = row.operator("badvc.fill_value", text="Fill with Value")
         op.value = settings.value
         op.channels = effective_channels(context)
@@ -84,51 +85,45 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         op.scope = settings.scope
 
         layout.separator()
-        layout.label(text="Blend")
+        blur = settings.blend_mode == 'BLUR'
         row = layout.row(align=True)
         row.prop(settings, "blend_mode", expand=True)
-        row = layout.row(align=True)
-        row.prop(settings, "blend_source", expand=True)
+        if not blur:
+            row = layout.row(align=True)
+            row.prop(settings, "blend_source", expand=True)
         layout.prop(settings, "blend_strength", text="Strength", slider=True)
-        op = layout.operator("badvc.filter_blend", text="Apply")
-        op.mode = settings.blend_mode
-        op.source = settings.blend_source
-        op.strength = settings.blend_strength
-        op.color = settings.color
-        op.value = settings.value
+        if blur:
+            layout.prop(settings, "blur_iterations", text="Iterations")
+            op = layout.operator("badvc.blur", text="Apply")
+            op.iterations = settings.blur_iterations
+            op.strength = settings.blend_strength
+        else:
+            op = layout.operator("badvc.filter_blend", text="Apply")
+            op.mode = settings.blend_mode
+            op.source = settings.blend_source
+            op.strength = settings.blend_strength
+            op.color = settings.color
+            op.value = settings.value
         op.channels = effective_channels(context)
         op.scope = settings.scope
 
-        layout.separator()
-        layout.label(text="Blur")
         row = layout.row(align=True)
-        row.prop(settings, "blur_iterations", text="Iterations")
-        row.prop(settings, "blur_strength", text="Strength", slider=True)
-        op = layout.operator("badvc.blur", text="Blur")
-        op.iterations = settings.blur_iterations
-        op.strength = settings.blur_strength
-        op.channels = effective_channels(context)
-        op.scope = settings.scope
-
-        layout.separator()
-        layout.label(text="Brush")
+        row.prop(settings, "brush_radius", text="Radius")
+        row.prop(settings, "brush_falloff", text="")
         row = layout.row(align=True)
-        row.prop(settings, "brush_mode", expand=True)
-        layout.prop(settings, "brush_radius", text="Radius")
-        layout.prop(settings, "brush_strength", text="Strength", slider=True)
-        layout.prop(settings, "brush_falloff", text="Falloff")
-        layout.prop(settings, "brush_spacing", text="Spacing")
-        layout.prop(settings, "brush_front_faces_only")
+        row.prop(settings, "brush_spacing", text="Spacing")
+        row.prop(settings, "brush_front_faces_only", text="Front Faces")
         row = layout.row()
         row.scale_y = 1.5
         row.operator_context = 'INVOKE_DEFAULT'
         row.operator("badvc.brush", text="Brush", icon='BRUSH_DATA')
-        layout.label(text="Esc/RMB/Enter: exit · [ ] radius · Shift: blur · Ctrl: invert")
+        layout.label(text="Esc/RMB/Enter/Ctrl+Tab: exit · [ ] radius · Shift: blur · Ctrl: invert")
 
 
 class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
     bl_label = "Gradient"
     bl_idname = "BADVC_PT_gradient"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -147,6 +142,8 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
             row.prop(settings, "gradient_color_b", text="")
         row.operator("badvc.gradient_swap_ends", text="", icon='ARROW_LEFTRIGHT')
         layout.prop(settings, "gradient_easing", text="Easing")
+        row = layout.row(align=True)
+        row.prop(settings, "gradient_shape", expand=True)
 
         def common(op):
             op.source = settings.gradient_source
@@ -165,8 +162,6 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
         row = box.row(align=True)
         row.prop(settings, "gradient_space", expand=True)
         row = box.row(align=True)
-        row.prop(settings, "gradient_shape", expand=True)
-        row = box.row(align=True)
         for text, flip in (("Apply Axis Gradient", False), ("Flipped", True)):
             op = row.operator("badvc.gradient_axis", text=text)
             common(op)
@@ -177,8 +172,6 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Gesture")
-        row = box.row(align=True)
-        row.prop(settings, "gradient_shape", expand=True)
         row = box.row(align=True)
         row.operator_context = 'INVOKE_DEFAULT'
         op = row.operator("badvc.gradient_gesture", text="Draw Gradient", icon='IPO_LINEAR')
@@ -203,6 +196,7 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
 class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
     bl_label = "Bake"
     bl_idname = "BADVC_PT_bake"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -228,11 +222,11 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
                 layout.prop(settings, "bake_center", text="Center")
             box = layout.box()
             box.label(text="Swizzle")
+            row = box.row(align=True)
             for ch in "rgba":
-                row = box.row(align=True)
-                row.label(text=ch.upper())
-                row.prop(settings, f"bake_swizzle_{ch}", text="")
-            box.label(text="Only selected channels are written", icon='INFO')
+                sub = row.row(align=True)
+                sub.label(text=ch.upper())
+                sub.prop(settings, f"bake_swizzle_{ch}", text="")
         elif kind == 'AO':
             layout.prop(settings, "bake_ao_samples")
             layout.prop(settings, "bake_ao_distance")
@@ -258,6 +252,29 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
             row.prop(settings, "bake_pos_space", expand=True)
             layout.prop(settings, "bake_pos_per_part")
             layout.prop(settings, "bake_pos_invert")
+
+        iso = context.window_manager.badvc_isolate
+        if kind == 'NORMAL':
+            swz = (settings.bake_swizzle_r, settings.bake_swizzle_g,
+                   settings.bake_swizzle_b, settings.bake_swizzle_a)
+            writable = swizzle_channels(swz) & channels
+        else:
+            writable = channels
+        if iso != 'NONE':
+            if writable:
+                layout.label(text=f"Writes to: {iso} (isolated)", icon='HIDE_OFF')
+            else:
+                layout.label(text="No channels: check swizzle and channel selection", icon='ERROR')
+        else:
+            row = layout.row(align=True)
+            row.label(text="Writes to:")
+            row.prop(settings, "target_channels", expand=True)
+            if not channels:
+                layout.label(text="No channels selected", icon='ERROR')
+            elif not writable:
+                layout.label(text="No channels: check swizzle and channel selection", icon='ERROR')
+            elif kind == 'NORMAL':
+                layout.label(text="Writes to: " + ", ".join(c for c in "RGBA" if c in writable))
 
         row = layout.row()
         row.scale_y = 1.5
@@ -304,7 +321,11 @@ class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
         layout = self.layout
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
-        layout.operator("badvc.sample_channels", text="Sample", icon='EYEDROPPER')
+        row = layout.row(align=True)
+        row.operator("badvc.sample_channels", text="Sample", icon='EYEDROPPER')
+        op = row.operator("badvc.set_channel_values", text="Set All")
+        op.values = tuple(settings.channel_values)
+        op.scope = settings.scope
         for i, ch in enumerate("RGBA"):
             row = layout.row(align=True)
             row.prop(settings, "channel_values", index=i, text=ch, slider=True)
@@ -317,6 +338,7 @@ class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
 class BADVC_PT_adjust(_SubPanel, bpy.types.Panel):
     bl_label = "Adjust"
     bl_idname = "BADVC_PT_adjust"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -336,6 +358,7 @@ class BADVC_PT_adjust(_SubPanel, bpy.types.Panel):
 class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
     bl_label = "Channel Transfer"
     bl_idname = "BADVC_PT_transfer"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -391,6 +414,7 @@ class BADVC_PT_transfer(_SubPanel, bpy.types.Panel):
 class BADVC_PT_attribute(_SubPanel, bpy.types.Panel):
     bl_label = "Color Attribute"
     bl_idname = "BADVC_PT_attribute"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -411,10 +435,10 @@ class BADVC_PT_attribute(_SubPanel, bpy.types.Panel):
 
 classes = (
     BADVC_PT_main,
+    BADVC_PT_channel_values,
     BADVC_PT_paint,
     BADVC_PT_gradient,
     BADVC_PT_bake,
-    BADVC_PT_channel_values,
     BADVC_PT_adjust,
     BADVC_PT_transfer,
     BADVC_PT_attribute,

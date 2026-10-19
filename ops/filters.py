@@ -56,8 +56,9 @@ class BADVC_OT_filter_blend(bpy.types.Operator):
 
     def invoke(self, context, event):
         init_from_settings(self, context, ('color', 'value', 'channels', 'scope'))
-        _init_extra(self, context, {'mode': 'blend_mode', 'source': 'blend_source',
-                                    'strength': 'blend_strength'})
+        _init_extra(self, context, {'source': 'blend_source', 'strength': 'blend_strength'})
+        if context.scene.badvc.blend_mode != 'BLUR':  # BLUR belongs to badvc.blur
+            _init_extra(self, context, {'mode': 'blend_mode'})
         return self.execute(context)
 
     def execute(self, context):
@@ -116,7 +117,7 @@ class BADVC_OT_blur(bpy.types.Operator):
 
     def invoke(self, context, event):
         init_from_settings(self, context, ('channels', 'scope'))
-        _init_extra(self, context, {'iterations': 'blur_iterations', 'strength': 'blur_strength'})
+        _init_extra(self, context, {'iterations': 'blur_iterations', 'strength': 'blend_strength'})
         return self.execute(context)
 
     def execute(self, context):

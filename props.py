@@ -84,11 +84,12 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
     )
     blend_mode: EnumProperty(
         name="Mode",
-        description="Blend mode, shared by the Blend filter and the Brush",
+        description="Mode, shared by Apply and the Brush",
         items=[
             ('MIX', "Mix", "Interpolate towards the color/value"),
             ('ADD', "Add", "Add color/value times strength"),
             ('SUB', "Sub", "Subtract color/value times strength"),
+            ('BLUR', "Blur", "Interpolate towards the average of the neighbours"),
         ],
         default='MIX',
     )
@@ -103,7 +104,7 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
     )
     blend_strength: FloatProperty(
         name="Strength",
-        description="Blend strength, shared by the Blend filter and the Brush",
+        description="Strength, shared by Apply and the Brush",
         min=0.0,
         max=1.0,
         default=0.5,
@@ -115,14 +116,6 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         min=1,
         max=100,
         default=3,
-    )
-    blur_strength: FloatProperty(
-        name="Blur Strength",
-        description="Blend factor towards the neighbour average per iteration",
-        min=0.0,
-        max=1.0,
-        default=0.5,
-        subtype='FACTOR',
     )
     gradient_source: EnumProperty(
         name="Source",
@@ -166,17 +159,6 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         ],
         default='LINEAR')
     # Interactive brush (F10). Color / value / blend_source are shared with Paint.
-    brush_mode: EnumProperty(
-        name="Mode",
-        description="Brush mode",
-        items=[
-            ('MIX', "Mix", "Interpolate towards the color/value"),
-            ('ADD', "Add", "Add color/value times weight"),
-            ('SUB', "Sub", "Subtract color/value times weight"),
-            ('BLUR', "Blur", "Interpolate towards the average of the neighbours"),
-        ],
-        default='MIX',
-    )
     brush_radius: IntProperty(
         name="Radius",
         description="Brush radius in pixels",
@@ -184,13 +166,6 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
         soft_max=500,
         default=50,
         subtype='PIXEL',
-    )
-    brush_strength: FloatProperty(
-        name="Strength",
-        description="Brush strength",
-        min=0.0,
-        max=1.0,
-        default=0.5,
     )
     brush_falloff: EnumProperty(
         name="Falloff",
