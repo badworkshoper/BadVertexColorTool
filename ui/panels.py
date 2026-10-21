@@ -2,7 +2,7 @@
 
 import bpy
 
-from ..ops._common import effective_channels, poll_color_mesh
+from ..ops._common import effective_channels, effective_source, is_isolated, poll_color_mesh
 from ..core.bake import swizzle_channels
 from ..ops.gradient import get_group
 
@@ -41,7 +41,9 @@ class BADVC_PT_main(bpy.types.Panel):
         if iso != 'NONE':
             op = row.operator("badvc.isolate_channel", text="", icon='X')
             op.channel = 'NONE'
-        layout.prop(wm, "badvc_isolate_shading", text="Shading")
+        row = layout.row()
+        row.prop(wm, "badvc_isolate_shading", text="Shading")
+        row.prop(wm, "badvc_isolate_srgb", text="Show in sRGB")
         row = layout.row(align=True)
         row.prop(settings, "scope", expand=True)
 
@@ -67,12 +69,14 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
 
-        row = layout.row(align=True)
-        row.prop(settings, "color", text="")
-        op = row.operator("badvc.fill", text="Fill with Color")
-        op.color = settings.color
-        op.channels = effective_channels(context)
-        op.scope = settings.scope
+        isolated = is_isolated(context)  # isolated: Value only (color alpha would leak in)
+        if not isolated:
+            row = layout.row(align=True)
+            row.prop(settings, "color", text="")
+            op = row.operator("badvc.fill", text="Fill with Color")
+            op.color = settings.color
+            op.channels = effective_channels(context)
+            op.scope = settings.scope
         row = layout.row(align=True)
         row.prop(settings, "value", text="Value", slider=True)
         op = row.operator("badvc.fill_value", text="Fill with Value")
@@ -89,8 +93,11 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(settings, "blend_mode", expand=True)
         if not blur:
-            row = layout.row(align=True)
-            row.prop(settings, "blend_source", expand=True)
+            if isolated:
+                layout.label(text="Isolated: painting uses Value", icon='INFO')
+            else:
+                row = layout.row(align=True)
+                row.prop(settings, "blend_source", expand=True)
         layout.prop(settings, "blend_strength", text="Strength", slider=True)
         if blur:
             layout.prop(settings, "blur_iterations", text="Iterations")
@@ -100,7 +107,7 @@ class BADVC_PT_paint(_SubPanel, bpy.types.Panel):
         else:
             op = layout.operator("badvc.filter_blend", text="Apply")
             op.mode = settings.blend_mode
-            op.source = settings.blend_source
+            op.source = effective_source(context, settings.blend_source)
             op.strength = settings.blend_strength
             op.color = settings.color
             op.value = settings.value
@@ -131,10 +138,15 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
         settings = context.scene.badvc
         obj = context.active_object
 
+        isolated = is_isolated(context)
+        source = effective_source(context, settings.gradient_source)
+        if isolated:
+            layout.label(text="Isolated: gradient uses Value", icon='INFO')
+        else:
+            row = layout.row(align=True)
+            row.prop(settings, "gradient_source", expand=True)
         row = layout.row(align=True)
-        row.prop(settings, "gradient_source", expand=True)
-        row = layout.row(align=True)
-        if settings.gradient_source == 'VALUE':
+        if source == 'VALUE':
             row.prop(settings, "gradient_start_value", text="Start", slider=True)
             row.prop(settings, "gradient_end_value", text="End", slider=True)
         else:
@@ -146,7 +158,7 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
         row.prop(settings, "gradient_shape", expand=True)
 
         def common(op):
-            op.source = settings.gradient_source
+            op.source = source
             op.start_value = settings.gradient_start_value
             op.end_value = settings.gradient_end_value
             op.color_a = settings.gradient_color_a
@@ -190,6 +202,7 @@ class BADVC_PT_gradient(_SubPanel, bpy.types.Panel):
         op = box.operator("badvc.gradient_between", text="Apply")
         common(op)
         op.method = settings.gradient_method
+        op.shape = settings.gradient_shape
         box.label(text="Or select exactly 2 vertices in Edit Mode", icon='INFO')
 
 

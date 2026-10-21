@@ -40,18 +40,32 @@ void main()
   // towards the camera scaled by the view distance. params.x = relative bias.
   vec3 to_cam = cam.xyz - pos * params.y;
   gl_Position = mvp * vec4(pos + to_cam * params.x, 1.0);
-  float shade = 1.0;
-  if (light.w > 0.5) {
-    // light.xyz: view-space headlight direction brought into object space on the CPU
-    shade = 0.6 + 0.4 * max(dot(normalize(nor), light.xyz), 0.0);
-  }
-  v_color = vec4(vec3(val * shade), 1.0);
+  // light.xyz: view-space headlight direction brought into object space on the CPU.
+  // The signed N.L goes to the fragment shader, which flips it for back faces.
+  float ndl = (light.w > 0.5) ? dot(normalize(nor), light.xyz) : 1.0;
+  v_data = vec2(val, ndl);
 }
 """
 _FRAG_SRC = """
 void main()
 {
-  FragColor = v_color;
+  // params.z = 1 for a mirrored object (negative determinant flips the winding).
+  bool front = (gl_FrontFacing != (params.z > 0.5));
+  float ndl = front ? v_data.y : -v_data.y;  // two-sided lighting: back faces use the flipped normal
+  float shade = 1.0;
+  if (light.w > 0.5) {
+    shade = 0.6 + 0.4 * max(ndl, 0.0);
+    if (!front) {
+      shade *= 0.85;  // back faces slightly darker so they stay distinguishable
+    }
+  }
+  // params.w = 1: show the stored value converted from sRGB to linear (inverse gamma, before shading).
+  float v = v_data.x;
+  if (params.w > 0.5) {
+    v = max(v, 0.0);
+    v = (v <= 0.04045) ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
+  }
+  FragColor = vec4(vec3(v * shade), 1.0);
 }
 """
 
@@ -74,6 +88,14 @@ _BIAS = 5e-4  # depth bias, relative to the camera distance
 
 
 # ---------------------------------------------------------------- pure buffers
+
+def srgb_to_linear(v):
+    """Standard sRGB -> linear transfer, inverse gamma (numpy). Mirrors the isolate fragment shader."""
+    v = np.asarray(v, dtype=np.float64)
+    safe = np.maximum(v, 0.0)
+    return np.where(safe <= 0.04045, safe / 12.92,
+                    np.power((np.maximum(safe, 0.04045) + 0.055) / 1.055, 2.4))
+
 
 def build_geometry(mesh):
     """Cacheable per-corner geometry (read-only on the mesh).
@@ -237,7 +259,7 @@ def _get_shader():
         info.vertex_in(1, 'VEC3', 'nor')
         info.vertex_in(2, 'FLOAT', 'val')
         iface = gpu.types.GPUStageInterfaceInfo("badvc_isolate_iface")
-        iface.smooth('VEC4', 'v_color')
+        iface.smooth('VEC2', 'v_data')
         info.vertex_out(iface)
         info.fragment_out(0, 'VEC4', 'FragColor')
         info.vertex_source(_VERT_SRC)
@@ -258,17 +280,38 @@ def _make_batch(pos, nor, val, ibo):
     return gpu.types.GPUBatch(type='TRIS', buf=vbo, elem=ibo)
 
 
+def culling_mode(show_backface_culling: bool, det: float) -> str:
+    """Face culling for the overlay: follows the viewport's Backface Culling setting.
+
+    Mirrored objects (det < 0) have flipped winding, so FRONT is culled instead of BACK.
+    """
+    if not show_backface_culling:
+        return 'NONE'
+    return 'FRONT' if det < 0 else 'BACK'
+
+
+def _viewport_backface_culling(ctx) -> bool:
+    space = getattr(ctx, 'space_data', None)
+    if space is None or getattr(space, 'type', None) != 'VIEW_3D':
+        return False
+    return bool(getattr(getattr(space, 'shading', None), 'show_backface_culling', False))
+
+
 def _camera_params(rv, obj):
-    """(cam vec4, params vec4) for the relative depth bias, in object space."""
+    """(cam vec4, params vec4) for the relative depth bias, in object space.
+
+    params = (bias, perspective flag, mirrored flag, 0); w (sRGB flag) is set by the caller.
+    """
+    mirrored = 1.0 if obj.matrix_world.determinant() < 0 else 0.0
     inv_world = obj.matrix_world.inverted_safe()
     view_inv = rv.view_matrix.inverted_safe()
     if rv.is_perspective:
         cam = inv_world @ view_inv.translation
-        return (cam.x, cam.y, cam.z, 0.0), (_BIAS, 1.0, 0.0, 0.0)
+        return (cam.x, cam.y, cam.z, 0.0), (_BIAS, 1.0, mirrored, 0.0)
     # ortho: direction towards the camera, scaled by the view distance
     toward = inv_world.to_3x3() @ (view_inv.to_3x3() @ Vector((0.0, 0.0, 1.0)))
     toward = toward.normalized() * max(rv.view_distance, 1e-3)
-    return (toward.x, toward.y, toward.z, 0.0), (_BIAS, 0.0, 0.0, 0.0)
+    return (toward.x, toward.y, toward.z, 0.0), (_BIAS, 0.0, mirrored, 0.0)
 
 
 def _draw_impl() -> None:
@@ -286,6 +329,7 @@ def _draw_impl() -> None:
     if validate_color_attribute(mesh, attr) is not None:
         return
     shading = bool(wm.badvc_isolate_shading)
+    srgb = 1.0 if wm.badvc_isolate_srgb else 0.0
     try:
         pos, nor, val, tri, geo_changed, val_changed = refresh_cache(obj.name, mesh, attr, channel)
     except ValueError:
@@ -308,12 +352,13 @@ def _draw_impl() -> None:
     shader.uniform_float('light', (light.x, light.y, light.z, 1.0 if shading else 0.0))
     cam, params = _camera_params(rv, obj)
     shader.uniform_float('cam', cam)
-    shader.uniform_float('params', params)
+    shader.uniform_float('params', (params[0], params[1], params[2], srgb))
     prev_mask = gpu.state.depth_mask_get()
     gpu.state.blend_set('NONE')
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(True)  # the overlay occludes itself correctly
-    gpu.state.face_culling_set('FRONT' if obj.matrix_world.determinant() < 0 else 'BACK')
+    gpu.state.face_culling_set(culling_mode(_viewport_backface_culling(ctx),
+                                            obj.matrix_world.determinant()))
     try:
         batch.draw(shader)
     finally:
@@ -423,6 +468,10 @@ def _on_shading_update(self, context) -> None:
     tag_redraw()  # shading is a uniform: no rebuild needed
 
 
+def _on_srgb_update(self, context) -> None:
+    tag_redraw()  # sRGB display is a uniform (params.w): no rebuild, no cache invalidation
+
+
 # ---------------------------------------------------------------- operator / registration
 
 class BADVC_OT_isolate_channel(bpy.types.Operator):
@@ -457,6 +506,13 @@ def register_props() -> None:
         default=True,
         update=_on_shading_update,
     )
+    bpy.types.WindowManager.badvc_isolate_srgb = BoolProperty(
+        name="Show in sRGB",
+        description=("Display the channel value with inverse sRGB gamma (sRGB to linear, darker "
+                     "midtones). Off: raw stored value"),
+        default=False,
+        update=_on_srgb_update,
+    )
 
 
 def unregister_props() -> None:
@@ -466,7 +522,7 @@ def unregister_props() -> None:
             wm.badvc_isolate = 'NONE'
         except Exception:
             pass
-    for name in ("badvc_isolate", "badvc_isolate_shading"):
+    for name in ("badvc_isolate", "badvc_isolate_shading", "badvc_isolate_srgb"):
         if hasattr(bpy.types.WindowManager, name):
             delattr(bpy.types.WindowManager, name)
 

@@ -62,6 +62,16 @@ def segment_t(points: np.ndarray, a, b) -> np.ndarray:
     return np.clip(((p - a) @ ab) / denom, 0.0, 1.0).astype(np.float32)
 
 
+def radial_t(points: np.ndarray, a, b) -> np.ndarray:
+    """t (N,): |p - A| / |B - A| clamped to 0..1 (sphere centred at A, radius up to B). Degenerate A == B -> 0."""
+    p = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    a = np.asarray(a, dtype=np.float64)
+    r = float(np.linalg.norm(np.asarray(b, dtype=np.float64) - a))
+    if r < 1e-9:
+        return np.zeros(len(p), dtype=np.float32)
+    return np.clip(np.linalg.norm(p - a, axis=1) / r, 0.0, 1.0).astype(np.float32)
+
+
 def _csr(n_verts: int, edges: np.ndarray, edge_len: np.ndarray):
     """Undirected adjacency in CSR form: (indptr, neighbours, weights)."""
     src = np.concatenate([edges[:, 0], edges[:, 1]])
@@ -117,6 +127,27 @@ def geodesic_t(n_verts: int, edges: np.ndarray, edge_len: np.ndarray,
     total = np.where(ok, ds + de, 1.0)
     t = np.where(total > 1e-12, ds / np.where(total > 1e-12, total, 1.0), 0.5)
     return np.where(ok, t, np.nan).astype(np.float32)
+
+
+def geodesic_radial_t(n_verts: int, edges: np.ndarray, edge_len: np.ndarray,
+                      start_idx, end_idx) -> np.ndarray:
+    """t (V,) = clamp(d_start / R, 0, 1) over edge distances, R = mean d_start over the reachable end group.
+
+    Unreachable vertices -> NaN; R ~ 0 or no reachable end vertex -> NaN for all.
+    """
+    edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
+    start = np.unique(np.asarray(start_idx, dtype=np.int64))
+    end = np.unique(np.asarray(end_idx, dtype=np.int64))
+    if n_verts == 0 or len(start) == 0 or len(end) == 0:
+        return np.full(n_verts, np.nan, dtype=np.float32)
+    indptr, nbr, wts = _csr(n_verts, edges, np.asarray(edge_len))
+    ds = _dijkstra(n_verts, indptr, nbr, wts, start.tolist())
+    d_end = ds[end]
+    d_end = d_end[np.isfinite(d_end)]
+    if len(d_end) == 0 or d_end.mean() < 1e-9:
+        return np.full(n_verts, np.nan, dtype=np.float32)
+    t = np.clip(ds / d_end.mean(), 0.0, 1.0)  # inf -> clipped to 1, masked below
+    return np.where(np.isfinite(ds), t, np.nan).astype(np.float32)
 
 
 def gradient_values(t, source: str, start_value: float, end_value: float,

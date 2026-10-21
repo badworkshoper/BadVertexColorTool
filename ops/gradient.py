@@ -19,7 +19,7 @@ from ..core import gradient as G
 from ..core.channels import CHANNEL_ITEMS
 from ..core.selection import vertex_selection
 from ..core.topology import edge_vertex_pairs, loop_vertex_indices
-from ._common import init_from_settings, poll_color_mesh, run_full_op
+from ._common import effective_source, init_from_settings, poll_color_mesh, run_full_op
 from .fill import SCOPE_ITEMS
 
 SOURCE_ITEMS = [
@@ -43,6 +43,8 @@ def _init_gradient(op, context, extra: dict | None = None) -> None:
         if op.properties.is_property_set(name):
             continue
         value = getattr(settings, src)
+        if name == 'source':
+            value = effective_source(context, value)  # isolated: always Value
         setattr(op, name, tuple(value) if name.startswith('color') else value)
 
 
@@ -234,13 +236,16 @@ class BADVC_OT_gradient_between(_GradientProps, bpy.types.Operator):
     method: EnumProperty(name="Method", items=[
         ('LINEAR', "Linear", "Projection on the segment between the points"),
         ('GEODESIC', "Geodesic", "Distance along mesh edges")], default='LINEAR')
+    shape: EnumProperty(name="Shape", items=[
+        ('LINEAR', "Linear", "Along the line between Start and End"),
+        ('RADIAL', "Radial", "Distance from Start, reaching the end value at End")], default='LINEAR')
 
     @classmethod
     def poll(cls, context):
         return poll_color_mesh(context)
 
     def invoke(self, context, event):
-        _init_gradient(self, context, {'method': 'gradient_method'})
+        _init_gradient(self, context, {'method': 'gradient_method', 'shape': 'gradient_shape'})
         return self.execute(context)
 
     def execute(self, context):
@@ -260,20 +265,29 @@ class BADVC_OT_gradient_between(_GradientProps, bpy.types.Operator):
             scope = 'ALL'  # only 2 vertices are selected: the gradient covers the whole mesh
 
         geodesic = self.method == 'GEODESIC'
+        radial = self.shape == 'RADIAL'
+        degenerate = [False]
 
         def t_func(mesh, mask, domain):
             pos = vertex_positions(mesh)
             if geodesic:
                 edges = edge_vertex_pairs(mesh)
                 lens = np.linalg.norm(pos[edges[:, 0]] - pos[edges[:, 1]], axis=1) if len(edges) else np.zeros(0)
-                t_v = G.geodesic_t(len(pos), edges, lens, start, end)
+                fn = G.geodesic_radial_t if radial else G.geodesic_t
+                t_v = fn(len(pos), edges, lens, start, end)
+                degenerate[0] = radial and bool(np.isnan(t_v).all())
             else:
-                t_v = G.segment_t(pos, pos[start].mean(axis=0), pos[end].mean(axis=0))
+                a, b = pos[start].mean(axis=0), pos[end].mean(axis=0)
+                t_v = G.radial_t(pos, a, b) if radial else G.segment_t(pos, a, b)
             return vertex_to_domain(t_v, mesh, domain)
 
         props = SimpleNamespace(scope=scope, **{n: getattr(self, n) for n in (
             'source', 'start_value', 'end_value', 'color_a', 'color_b', 'easing', 'channels')})
-        return run_gradient(self, context, t_func, props)
+        result = run_gradient(self, context, t_func, props)
+        if degenerate[0]:
+            self.report({'WARNING'}, "Radial geodesic: End is unreachable from Start or coincides with it")
+            return {'CANCELLED'}
+        return result
 
 
 # --------------------------------------------------------------------------- mouse gesture (F08b)

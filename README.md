@@ -23,7 +23,7 @@ Find the tools in the 3D Viewport: Sidebar (N) > **BadVC** tab.
   - Edit Mode: selected vertices or faces (depends on the select mode).
   - Vertex Paint: respects the Face / Vertex selection masks if enabled; with no mask the whole mesh is used.
   - Object Mode: the whole mesh.
-- **Isolate** (R / G / B / A buttons): shows one channel of the active attribute as grayscale in the viewport. The mesh data is not changed. While a channel is isolated, edits go only to that channel. Click again (or the X button) to turn it off. The *Shading* option adds light shading to the preview.
+- **Isolate** (R / G / B / A buttons): shows one channel of the active attribute as grayscale in the viewport. The mesh data is not changed. While a channel is isolated, edits go only to that channel. Click again (or the X button) to turn it off. The *Shading* option adds light shading to the preview; *Show in sRGB* displays the value with inverse sRGB gamma (sRGB to linear, midtones become darker; display only, the stored data is unchanged). While a channel is isolated, painting, Apply and Gradient use Value instead of Color.
 
 ## Panels
 
@@ -32,10 +32,10 @@ Find the tools in the 3D Viewport: Sidebar (N) > **BadVC** tab.
   - *Fill with Color* and *Fill with Value* (a single value into the chosen channels).
   - *Invert*.
   - Mode **Mix / Add / Sub / Blur** with a shared **Strength** (and Source for Mix/Add/Sub). *Apply* runs it once on the scope; *Brush* uses the same mode and strength interactively. Radius, Falloff, Spacing and Front Faces are brush settings.
-- **Gradient** (collapsed by default): Source (values or colors), Easing, Linear / Radial shape.
+- **Gradient** (collapsed by default): Source (values or colors), Easing, Linear / Radial shape (applies to all three modes below).
   - *Axis*: X / Y / Z in Object or World space.
   - *Gesture*: *Draw Gradient*, then drag in the viewport.
-  - *Between Vertices*: select exactly 2 vertices in Edit Mode, or set Start / End groups; Linear or Geodesic method.
+  - *Between Vertices*: select exactly 2 vertices in Edit Mode, or set Start / End groups; Linear or Geodesic method. Radial grows from the Start point (or group) and reaches the end value at End.
 - **Bake** (collapsed): Normal (Object / World space, with channel Swizzle +-X/Y/Z to R/G/B/A; sources: mesh normals, proxy object, spherical), AO, Random (per loose part / face / vertex), Position (axis or distance). The *Writes to* row shows exactly which channels will be written.
 - **Adjust** (collapsed): Levels, Brightness / Contrast, Posterize, Clamp. Tweak the values afterwards in *Adjust Last Operation* (F9).
 - **Channel Transfer** (collapsed): *Within Attribute* copies or swaps one channel with another; *From Attribute* copies or swaps a channel or the full color from another color attribute (domains and types may differ).

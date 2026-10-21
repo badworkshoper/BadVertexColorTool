@@ -49,6 +49,19 @@ def effective_channels(context) -> set[str]:
     return set(context.scene.badvc.target_channels)
 
 
+def is_isolated(context) -> bool:
+    """A single channel is isolated (WindowManager.badvc_isolate != 'NONE')."""
+    return getattr(context.window_manager, 'badvc_isolate', 'NONE') != 'NONE'
+
+
+def effective_source(context, source: str) -> str:
+    """Color/Value source actually used: always 'VALUE' while a channel is isolated.
+
+    A 4-component color would put its alpha (usually 1.0) into the isolated channel.
+    """
+    return 'VALUE' if is_isolated(context) else source
+
+
 def _after_write(context) -> None:
     """Refresh the isolate preview after a successful write (flag + redraw only)."""
     isolate.tag_dirty()

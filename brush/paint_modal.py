@@ -15,7 +15,7 @@ from ..core.attributes import (
     write_colors,
 )
 from ..core.channels import channels_to_indices
-from ..ops._common import _after_write, effective_channels, poll_color_mesh
+from ..ops._common import _after_write, effective_channels, is_isolated, poll_color_mesh
 from ..preview import isolate
 from . import core as bcore
 from . import cursor_draw
@@ -52,6 +52,13 @@ def _step_radius(radius: int, factor: float) -> int:
     if new == radius:
         new = max(1, radius + (1 if factor > 1.0 else -1))
     return new
+
+
+def brush_target(settings, isolated: bool) -> tuple:
+    """RGBA brush target. While a channel is isolated it is always Value (color alpha would leak in)."""
+    if not isolated and settings.blend_source == 'COLOR':
+        return tuple(float(c) for c in settings.color)
+    return (float(settings.value),) * 4
 
 
 def is_exit_event(etype: str, value: str, ctrl: bool) -> bool:
@@ -284,7 +291,8 @@ class BADVC_OT_brush(bpy.types.Operator):
 
     def _sync_header(self, context, extra: str = ""):
         s = context.scene.badvc
-        text = (f"Brush {s.blend_mode.title()}  |  Radius {s.brush_radius}px  |  Strength {s.blend_strength:.2f}  |  "
+        src = f"  |  Value {s.value:.2f}" if is_isolated(context) else ""
+        text = (f"Brush {s.blend_mode.title()}  |  Radius {s.brush_radius}px  |  Strength {s.blend_strength:.2f}{src}  |  "
                 f"{extra or 'LMB paint  [ ] radius  F / Shift+F resize radius / strength  Shift blur  Ctrl invert  Esc/RMB/Enter/Ctrl+Tab exit'}")
         if text != self._header:
             self._header = text
@@ -340,10 +348,7 @@ class BADVC_OT_brush(bpy.types.Operator):
         attr = mesh.color_attributes[self._attr_name]
         self._work = read_colors(mesh, attr)
         refresh_mask(self._cache, obj, settings.scope, self._orig_mode)
-        if settings.blend_source == 'COLOR':
-            self._target = tuple(float(c) for c in settings.color)
-        else:
-            self._target = (float(settings.value),) * 4
+        self._target = brush_target(settings, is_isolated(context))
         self._channels = tuple(channels_to_indices(effective_channels(context)))
         self._stroke = True
         self._stroke_dirty = False

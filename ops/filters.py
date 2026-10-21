@@ -12,7 +12,7 @@ from ..core.topology import (
     loop_vertex_indices,
     vertex_neighbor_mean,
 )
-from ._common import init_from_settings, poll_color_mesh, run_color_op, run_full_op
+from ._common import effective_source, init_from_settings, poll_color_mesh, run_color_op, run_full_op
 from .fill import SCOPE_ITEMS
 
 _MODE_FUNCS = {'MIX': blend.mix, 'ADD': blend.add, 'SUB': blend.sub}
@@ -56,7 +56,10 @@ class BADVC_OT_filter_blend(bpy.types.Operator):
 
     def invoke(self, context, event):
         init_from_settings(self, context, ('color', 'value', 'channels', 'scope'))
+        explicit_source = self.properties.is_property_set('source')
         _init_extra(self, context, {'source': 'blend_source', 'strength': 'blend_strength'})
+        if not explicit_source:
+            self.source = effective_source(context, self.source)  # isolated: always Value
         if context.scene.badvc.blend_mode != 'BLUR':  # BLUR belongs to badvc.blur
             _init_extra(self, context, {'mode': 'blend_mode'})
         return self.execute(context)
