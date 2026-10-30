@@ -11,9 +11,11 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from mathutils.bvhtree import BVHTree
 
 from ..core import bake as B
+from ..core.attributes import validate_color_attribute, write_colors
 from ..core.channels import CHANNEL_ITEMS
+from ..core.mode import ensure_object_mode
 from ..core.topology import loop_vertex_indices, loose_parts
-from ._common import init_from_settings, poll_color_mesh, run_full_op
+from ._common import _after_write, init_from_settings, poll_color_mesh, run_full_op
 from .fill import SCOPE_ITEMS
 from .gradient import vertex_positions, vertex_to_domain
 
@@ -141,6 +143,9 @@ class BADVC_OT_bake_normal(_BakeProps, bpy.types.Operator):
         ('ORIGIN', "Origin", "Object origin"), ('BBOX', "Bounds", "Mesh bounding box center"),
         ('CURSOR', "Cursor", "3D cursor"), ('SELECTION', "Selection", "Center of the affected vertices")],
         default='ORIGIN')
+    smooth: BoolProperty(name="Smooth", default=True,
+                         description="Use smooth vertex normals on Face Corner attributes "
+                                     "(off: split/custom corner normals)")
     swizzle_r: EnumProperty(name="R", items=B.SWIZZLE_ITEMS, default='POS_X')
     swizzle_g: EnumProperty(name="G", items=B.SWIZZLE_ITEMS, default='POS_Y')
     swizzle_b: EnumProperty(name="B", items=B.SWIZZLE_ITEMS, default='POS_Z')
@@ -153,7 +158,8 @@ class BADVC_OT_bake_normal(_BakeProps, bpy.types.Operator):
     def invoke(self, context, event):
         _init_bake(self, context, {
             'space': 'bake_normal_space', 'source': 'bake_normal_source', 'proxy': 'bake_proxy',
-            'center': 'bake_center', 'swizzle_r': 'bake_swizzle_r', 'swizzle_g': 'bake_swizzle_g',
+            'center': 'bake_center', 'smooth': 'bake_normal_smooth',
+            'swizzle_r': 'bake_swizzle_r', 'swizzle_g': 'bake_swizzle_g',
             'swizzle_b': 'bake_swizzle_b', 'swizzle_a': 'bake_swizzle_a'})
         return self.execute(context)
 
@@ -175,7 +181,7 @@ class BADVC_OT_bake_normal(_BakeProps, bpy.types.Operator):
                 self.report({'ERROR'}, "Proxy must be a different object")
                 return {'CANCELLED'}
 
-        source, space, center_mode = self.source, self.space, self.center
+        source, space, center_mode, smooth = self.source, self.space, self.center, self.smooth
         mw = _matrix(obj)
         cursor = np.array(context.scene.cursor.location, dtype=np.float64)
         depsgraph = context.evaluated_depsgraph_get()
@@ -186,8 +192,8 @@ class BADVC_OT_bake_normal(_BakeProps, bpy.types.Operator):
             n_obj = None  # (V|L, 3) object space or None when n_world_v is set
             n_world_v = None
             if source == 'MESH':
-                if domain == 'POINT':
-                    n_obj = _vec3(mesh.vertex_normals, nv)
+                if domain == 'POINT' or smooth:
+                    n_obj = vertex_to_domain(_vec3(mesh.vertex_normals, nv), mesh, domain)
                 else:
                     n_obj = _vec3(mesh.corner_normals, len(mesh.loops))
             elif source == 'SPHERICAL':
@@ -222,6 +228,72 @@ class BADVC_OT_bake_normal(_BakeProps, bpy.types.Operator):
             return B.encode_normals(n_dom, swizzle)
 
         return run_full_op(self, context, func, writable, self.scope)
+
+
+class BADVC_OT_bake_smooth_normal(bpy.types.Operator):
+    """Preset: bake smooth vertex normals into a color attribute (created if missing).
+    Writes all four channels on the whole mesh; ignores Scope, channel selection and isolation"""
+    bl_idname = "badvc.bake_smooth_normal"
+    bl_label = "Bake Smooth Normal"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    attribute_name: StringProperty(name="Attribute", default="NormalColor")
+    space: EnumProperty(name="Space", items=[
+        ('OBJECT', "Object", "Object space"), ('WORLD', "World", "World space")], default='OBJECT')
+    swizzle_r: EnumProperty(name="R", items=B.SWIZZLE_ITEMS, default='NEG_X')
+    swizzle_g: EnumProperty(name="G", items=B.SWIZZLE_ITEMS, default='POS_Z')
+    swizzle_b: EnumProperty(name="B", items=B.SWIZZLE_ITEMS, default='NEG_Y')
+    swizzle_a: EnumProperty(name="A", items=B.SWIZZLE_ITEMS, default='NONE')
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in ('OBJECT', 'EDIT', 'VERTEX_PAINT')
+
+    def invoke(self, context, event):
+        settings = context.scene.badvc
+        for name, src in (('space', 'bake_normal_space'), ('swizzle_r', 'bake_swizzle_r'),
+                          ('swizzle_g', 'bake_swizzle_g'), ('swizzle_b', 'bake_swizzle_b'),
+                          ('swizzle_a', 'bake_swizzle_a')):
+            if not self.properties.is_property_set(name):
+                setattr(self, name, getattr(settings, src))
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.active_object
+        name = self.attribute_name.strip()
+        if not name:
+            self.report({'ERROR'}, "Attribute name is empty")
+            return {'CANCELLED'}
+        swizzle = (self.swizzle_r, self.swizzle_g, self.swizzle_b, self.swizzle_a)
+        mw = _matrix(obj)
+        created = False
+        with ensure_object_mode(obj):
+            mesh = obj.data
+            attr = mesh.color_attributes.get(name)
+            if attr is None:
+                if mesh.attributes.get(name) is not None:
+                    self.report({'ERROR'}, f"Attribute '{name}' exists and is not a color attribute")
+                    return {'CANCELLED'}
+                mesh.color_attributes.new(name, 'FLOAT_COLOR', 'POINT')
+                attr = mesh.color_attributes.get(name)  # re-fetch: the old reference is invalidated
+                created = True
+            error = validate_color_attribute(mesh, attr)
+            if error:
+                self.report({'ERROR'}, error)
+                return {'CANCELLED'}
+            mesh.color_attributes.active_color = attr
+            n = B.normalize_rows(vertex_to_domain(_vec3(mesh.vertex_normals, len(mesh.vertices)),
+                                                  mesh, attr.domain))
+            if self.space == 'WORLD':
+                n = B.transform_normals(n, mw[:3, :3])
+            values = B.encode_normals(n, swizzle)
+            if swizzle[3] == 'NONE':
+                values[:, 3] = 1.0
+            write_colors(mesh, attr, values)
+            _after_write(context)
+        self.report({'INFO'}, f"Baked smooth normals to '{name}'" + (" (created)" if created else ""))
+        return {'FINISHED'}
 
 
 # --------------------------------------------------------------------------- AO
@@ -420,4 +492,4 @@ class BADVC_OT_bake_position(_BakeProps, bpy.types.Operator):
         return run_full_op(self, context, func, set(self.channels), self.scope)
 
 
-classes = (BADVC_OT_bake_normal, BADVC_OT_bake_ao, BADVC_OT_bake_random, BADVC_OT_bake_position)
+classes = (BADVC_OT_bake_normal, BADVC_OT_bake_smooth_normal, BADVC_OT_bake_ao, BADVC_OT_bake_random, BADVC_OT_bake_position)

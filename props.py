@@ -220,6 +220,9 @@ class BADVC_PG_Settings(bpy.types.PropertyGroup):
                ('CURSOR', "Cursor", "3D cursor"),
                ('SELECTION', "Selection", "Center of the affected vertices")],
         default='ORIGIN')
+    bake_normal_smooth: BoolProperty(
+        name="Smooth", description="Use smooth vertex normals on Face Corner attributes "
+                                   "(off: split/custom corner normals)", default=True)
     bake_swizzle_r: EnumProperty(name="R", description="Normal component written to R",
                                  items=SWIZZLE_ITEMS, default='POS_X')
     bake_swizzle_g: EnumProperty(name="G", description="Normal component written to G",

@@ -36,7 +36,7 @@ Find the tools in the 3D Viewport: Sidebar (N) > **BadVC** tab.
   - *Axis*: X / Y / Z in Object or World space.
   - *Gesture*: *Draw Gradient*, then drag in the viewport.
   - *Between Vertices*: select exactly 2 vertices in Edit Mode, or set Start / End groups; Linear or Geodesic method. Radial grows from the Start point (or group) and reaches the end value at End.
-- **Bake** (collapsed): Normal (Object / World space, with channel Swizzle +-X/Y/Z to R/G/B/A; sources: mesh normals, proxy object, spherical), AO, Random (per loose part / face / vertex), Position (axis or distance). The *Writes to* row shows exactly which channels will be written.
+- **Bake** (collapsed): Normal (Object / World space, with channel Swizzle +-X/Y/Z to R/G/B/A; sources: mesh normals, proxy object, spherical), AO, Random (per loose part / face / vertex), Position (axis or distance). The *Writes to* row shows exactly which channels will be written. The *Bake Smooth Normal* button writes smooth vertex normals (using the panel's Space and Swizzle) to a *NormalColor* attribute on the whole mesh, ignoring Scope and channel selection; the *Smooth* checkbox makes Bake Normal use smooth vertex normals on Face Corner attributes.
 - **Adjust** (collapsed): Levels, Brightness / Contrast, Posterize, Clamp. Tweak the values afterwards in *Adjust Last Operation* (F9).
 - **Channel Transfer** (collapsed): *Within Attribute* copies or swaps one channel with another; *From Attribute* copies or swaps a channel or the full color from another color attribute (domains and types may differ).
 - **Color Attribute** (collapsed): add a color attribute and see the name, domain and type of the active one.

@@ -212,7 +212,8 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
-        layout = self.layout
+        root = self.layout
+        layout = root.column()
         layout.enabled = poll_color_mesh(context)
         settings = context.scene.badvc
         channels = effective_channels(context)
@@ -233,6 +234,8 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
                     layout.label(text="Proxy must be a different object", icon='ERROR')
             elif settings.bake_normal_source == 'SPHERICAL':
                 layout.prop(settings, "bake_center", text="Center")
+            if settings.bake_normal_source == 'MESH':
+                layout.prop(settings, "bake_normal_smooth")
             box = layout.box()
             box.label(text="Swizzle")
             row = box.row(align=True)
@@ -297,6 +300,7 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
             op.source = settings.bake_normal_source
             op.proxy = settings.bake_proxy.name if settings.bake_proxy is not None else ""
             op.center = settings.bake_center
+            op.smooth = settings.bake_normal_smooth
             op.swizzle_r = settings.bake_swizzle_r
             op.swizzle_g = settings.bake_swizzle_g
             op.swizzle_b = settings.bake_swizzle_b
@@ -324,6 +328,20 @@ class BADVC_PT_bake(_SubPanel, bpy.types.Panel):
             op.invert = settings.bake_pos_invert
         op.channels = channels
         op.scope = settings.scope
+
+        if kind == 'NORMAL':
+            col = root.column()  # not disabled by the missing active color attribute
+            col.separator()
+            row = col.row()
+            row.scale_y = 1.5
+            op = row.operator("badvc.bake_smooth_normal", text="Bake Smooth Normal", icon='NORMALS_VERTEX')
+            op.attribute_name = "NormalColor"
+            op.space = settings.bake_normal_space
+            op.swizzle_r = settings.bake_swizzle_r
+            op.swizzle_g = settings.bake_swizzle_g
+            op.swizzle_b = settings.bake_swizzle_b
+            op.swizzle_a = settings.bake_swizzle_a
+            col.label(text="→ 'NormalColor' (Float, Point), all channels, whole mesh")
 
 
 class BADVC_PT_channel_values(_SubPanel, bpy.types.Panel):
